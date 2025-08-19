@@ -1,0 +1,4 @@
+.vscode
+fonts/
+build/
+*.out
