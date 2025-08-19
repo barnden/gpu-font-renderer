@@ -1,5 +1,5 @@
 #include "OpenType/OpenType.h"
-#include "OpenType/Tables.h"
+#include "OpenType/Tables/cmap.h"
 
 #include <cstdlib>
 #include <print>
@@ -24,8 +24,26 @@ int main(int argc, char** argv)
     std::println("{}", *font.get<MaximumProfile>());
     std::println("{}", *font.get<IndexToLocation>());
 
-    std::println("{}", *font.get<GlyphData>());
-    for (auto i = 0uz; i < 10uz; i++) {
-        std::println("\t{}", font.get<GlyphData>()->headers()[i]);
+    auto const& glyf = *font.get<GlyphData>();
+    std::println("{}", glyf);
+
+    auto const& cmap = *font.get<CharacterMap>();
+    std::println("{}", cmap);
+    {
+        std::println("Character '{}' maps to glyph {}.", 'a', cmap.map('a'));
+        auto glyph = glyf[cmap.map('a')];
+
+        if (glyph != nullptr)
+            std::println("\t{}", *glyph);
+    }
+
+    for (auto i = 0; i < 10; i++) {
+        auto glyph = glyf[i];
+
+        if (glyph != nullptr)
+            std::println("\t{}", *glyph);
+        else {
+            std::println("\tGlyph {} has no data.", i);
+        }
     }
 }

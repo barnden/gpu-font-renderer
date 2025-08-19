@@ -11,10 +11,10 @@
 #include <string>
 
 struct TableRecord {
-    TableTag tableTag;
-    u32 checksum;
-    u32 offset;
-    u32 length;
+    TableTag tableTag {};
+    u32 checksum {};
+    u32 offset {};
+    u32 length {};
 
     auto read(std::ifstream& file) -> bool
     {

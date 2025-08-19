@@ -1,18 +1,12 @@
 #pragma once
 
 #include <arpa/inet.h>
-#include <array>
-#include <bitset>
-#include <cstdint>
-#include <cstring>
 #include <format>
 #include <fstream>
 #include <map>
 #include <memory>
-#include <numeric>
 #include <print>
 #include <string>
-#include <vector>
 
 #include "Defines.h"
 
@@ -39,6 +33,7 @@ class OpenType {
         auto head = std::make_shared<Head>();
 
         {
+            file.clear();
             file.seekg(m_directory[Head::g_identifier].offset);
             if (!head->read(file))
                 return false;
@@ -48,6 +43,7 @@ class OpenType {
 
         auto maxp = std::make_shared<MaximumProfile>();
         {
+            file.clear();
             file.seekg(m_directory[MaximumProfile::g_identifier].offset);
             if (!maxp->read(file))
                 return false;
@@ -56,8 +52,8 @@ class OpenType {
         }
 
         auto loca = std::make_shared<IndexToLocation>(head->indexToLocFormat == 0 ? 16 : 32, maxp->numGlyphs);
-
         {
+            file.clear();
             file.seekg(m_directory[IndexToLocation::g_identifier].offset);
             if (!loca->read(file))
                 return false;
@@ -65,12 +61,21 @@ class OpenType {
         }
 
         auto glyf = std::make_shared<GlyphData>(loca);
-
         {
+            file.clear();
             file.seekg(m_directory[GlyphData::g_identifier].offset);
             if (!glyf->read(file))
                 return false;
             m_tables[GlyphData::g_identifier] = glyf;
+        }
+
+        auto cmap = std::make_shared<CharacterMap>();
+        {
+            file.clear();
+            file.seekg(m_directory[CharacterMap::g_identifier].offset);
+            if (!cmap->read(file))
+                return false;
+            m_tables[CharacterMap::g_identifier] = cmap;
         }
 
         return true;
@@ -104,7 +109,8 @@ public:
         return m_directory;
     }
 
-    [[nodiscard]] auto valid() const noexcept -> bool {
+    [[nodiscard]] auto valid() const noexcept -> bool
+    {
         return m_valid;
     }
 };

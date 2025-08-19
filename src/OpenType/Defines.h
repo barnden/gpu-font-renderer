@@ -3,7 +3,6 @@
 #include <array>
 #include <cstdint>
 #include <format>
-#include <type_traits>
 
 using i8 = int8_t;
 using i16 = int16_t;
@@ -49,3 +48,12 @@ struct formatter<T> : formatter<string> {
     }
 };
 }
+
+struct Fixed {
+    u32 data;
+
+    [[nodiscard]] constexpr auto value() const noexcept -> float
+    {
+        return static_cast<float>(data >> 16) + (data & 0xFFFF) / static_cast<float>(0xFFFF);
+    }
+};
