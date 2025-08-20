@@ -3,6 +3,7 @@
 #include <array>
 #include <cstdint>
 #include <format>
+#include <cmath>
 
 using i8 = int8_t;
 using i16 = int16_t;
@@ -50,10 +51,35 @@ struct formatter<T> : formatter<string> {
 }
 
 struct Fixed {
-    u32 data;
+    u32 data {};
 
     [[nodiscard]] constexpr auto value() const noexcept -> float
     {
         return static_cast<float>(data >> 16) + (data & 0xFFFF) / static_cast<float>(0xFFFF);
+    }
+};
+
+struct F2DOT14 {
+    static constexpr float MAX = 1. + 16383. / 16384.;
+    static constexpr float MIN = -MAX;
+
+    u16 data {};
+
+    F2DOT14(float value) {
+        float integral = 0.;
+        float fractional = 0.;
+
+        fractional = std::modf(value, &integral);
+
+        data = (static_cast<i8>(integral) & 0x3) << 14;
+        data |= static_cast<u16>(fractional * 0xFFFF) >> 2;
+    }
+
+    [[nodiscard]] constexpr auto value() const noexcept -> float
+    {
+        float val = data >> 14;
+        auto frac = data & 0x3FFF;
+
+        return val + frac / 16383.;
     }
 };
