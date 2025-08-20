@@ -63,6 +63,7 @@ public:
     }
 };
 
+class GlyphData;
 class BaseGlyphDescription {
 protected:
     friend class GlyphData;
@@ -75,6 +76,8 @@ public:
     {
         return m_header;
     }
+
+    virtual auto process(std::vector<std::shared_ptr<BaseGlyphDescription>> const&) -> void { };
 
     virtual auto read(std::ifstream& file) -> bool = 0;
     [[nodiscard]] virtual auto contours() const noexcept -> std::vector<std::vector<std::pair<i16, i16>>> const& = 0;
@@ -261,6 +264,199 @@ public:
     }
 };
 
+class CompositeGlyphDescription : public BaseGlyphDescription {
+    /**
+     * Composite glyphs may be nested within other composite glyphs—that is,
+     * a composite glyph parent may include other composite glyphs as child
+     * components. Thus, a composite glyph description is a directed graph.
+     * This graph must be acyclic, with every path through the graph leading to
+     * a simple glyph as a leaf node
+     */
+
+    /**
+     * The parent can also specify a scale or other affine transform to be
+     * applied to a child glyph as it is incorporated into the parent.
+     * The transform can affect an offset vector used to position the child glyph
+     */
+
+    class CompositeGlyphRecord {
+    public:
+        enum Flags {
+            ARG_1_AND_2_ARE_WORDS = 0,
+            ARGS_ARE_XY_VALUES,
+            ROUND_XY_TO_GRID,
+            WE_HAVE_A_SCALE,
+            RESERVED_4,
+            MORE_COMPONENTS,
+            WE_HAVE_AN_X_AND_Y_SCALE,
+            WE_HAVE_A_TWO_BY_TWO,
+            WE_HAVE_INSTRUCTIONS,
+            USE_MY_METRICS,
+            OVERLAP_COMPOUND,
+            SCALED_COMPONENT_OFFSET,
+            UNSCALED_COMPONENT_OFFSET,
+            RESERVED_13,
+            RESERVED_14,
+            RESERVED_15,
+            Num_FLAGS
+        };
+
+        using flag_t = std::bitset<Flags::Num_FLAGS>;
+
+    private:
+        flag_t m_flags;
+        u16 m_glyphIndex;
+
+        // SPEC: It can be u8, i8, u16, i16. Chose i32 container as all are representable.
+        i32 m_argument1;
+        i32 m_argument2;
+
+        F2DOT14 x_scale { 1.0 };
+        F2DOT14 y_scale { 1.0 };
+        F2DOT14 scale01 { 0.0 };
+        F2DOT14 scale10 { 0.0 };
+
+    public:
+        [[nodiscard]] auto flags() const noexcept -> flag_t const&
+        {
+            return m_flags;
+        }
+
+        [[nodiscard]] auto glyph_id() const noexcept -> u16
+        {
+            return m_glyphIndex;
+        }
+
+        auto apply_transformation(std::pair<i16, i16>& point)
+        {
+            auto x = point.first;
+            auto y = point.second;
+
+            point.first = x_scale.value() * x + scale10.value() * y;
+            point.second = scale01.value() * x + y_scale.value() * y;
+
+            if (m_flags[Flags::ARGS_ARE_XY_VALUES]) {
+                // ROUND_XY_TO_GRID unsupported
+                point.first += m_argument1;
+                point.second += m_argument2;
+            } else {
+                // FIXME: Point alignment is unsupported, and not possible with
+                //        the current approach preprocessing the point data.
+                ASSERT_NOT_REACHED;
+            }
+        }
+
+        auto read(std::ifstream& file) -> bool
+        {
+            u16 temp = 0;
+            file.read(reinterpret_cast<char*>(&temp), sizeof(u16));
+            temp = ntohs(temp);
+            m_flags = flag_t(temp);
+
+            file.read(reinterpret_cast<char*>(&m_glyphIndex), sizeof(u16));
+            m_glyphIndex = ntohs(m_glyphIndex);
+
+            if (m_flags[Flags::ARG_1_AND_2_ARE_WORDS]) {
+                file.read(reinterpret_cast<char*>(&m_argument1), sizeof(u16));
+                m_argument1 = ntohs(m_argument1);
+
+                file.read(reinterpret_cast<char*>(&m_argument2), sizeof(u16));
+                m_argument2 = ntohs(m_argument2);
+            } else {
+                file.read(reinterpret_cast<char*>(&temp), sizeof(u16));
+                temp = ntohs(temp);
+
+                m_argument1 = (temp >> 8) & 0xFF;
+                m_argument2 = temp & 0xFF;
+            }
+
+            if (m_flags[Flags::WE_HAVE_A_SCALE]) {
+                file.read(reinterpret_cast<char*>(&temp), sizeof(u16));
+                temp = ntohs(temp);
+
+                x_scale.data = temp;
+                y_scale.data = temp;
+            } else if (m_flags[Flags::WE_HAVE_AN_X_AND_Y_SCALE]) {
+                file.read(reinterpret_cast<char*>(&x_scale.data), sizeof(u16));
+                x_scale.data = ntohs(x_scale.data);
+
+                file.read(reinterpret_cast<char*>(&y_scale.data), sizeof(u16));
+                y_scale.data = ntohs(y_scale.data);
+            } else if (m_flags[Flags::WE_HAVE_A_TWO_BY_TWO]) {
+                file.read(reinterpret_cast<char*>(&x_scale.data), sizeof(u16));
+                x_scale.data = ntohs(x_scale.data);
+
+                file.read(reinterpret_cast<char*>(&scale01.data), sizeof(u16));
+                scale01.data = ntohs(scale01.data);
+
+                file.read(reinterpret_cast<char*>(&scale10.data), sizeof(u16));
+                scale10.data = ntohs(scale10.data);
+
+                file.read(reinterpret_cast<char*>(&y_scale.data), sizeof(u16));
+                y_scale.data = ntohs(y_scale.data);
+            }
+
+            return true;
+        }
+    }; // class CompositeGlyphRecord
+
+    friend class GlyphData;
+
+    std::vector<CompositeGlyphRecord> m_glyphs {};
+    std::vector<std::vector<std::pair<i16, i16>>> m_contours {};
+
+public:
+    virtual auto read(std::ifstream& file) -> bool override
+    {
+        do {
+            auto record = CompositeGlyphRecord {};
+
+            if (!record.read(file))
+                return false;
+
+            m_glyphs.push_back(std::move(record));
+        } while (m_glyphs.back().flags()[CompositeGlyphRecord::Flags::MORE_COMPONENTS]);
+
+        return true;
+    }
+
+    virtual auto process(std::vector<std::shared_ptr<BaseGlyphDescription>> const& glyphData) -> void override
+    {
+        for (auto&& record : m_glyphs) {
+            auto glyph = glyphData[record.glyph_id()];
+
+            if (glyph->contours().empty())
+                glyph->process(glyphData);
+
+            for (auto&& contour : glyph->contours()) {
+                m_contours.push_back(contour);
+
+                std::transform(
+                    m_contours.back().begin(), m_contours.back().end(),
+                    m_contours.back().begin(),
+                    [&](std::pair<i16, i16> pair) {
+                        record.apply_transformation(pair);
+
+                        return pair;
+                    });
+            }
+        }
+    }
+
+    [[nodiscard]] virtual auto contours() const noexcept -> std::vector<std::vector<std::pair<i16, i16>>> const& override
+    {
+        // TODO: Implement;
+        return m_contours;
+    }
+
+    [[nodiscard]] virtual auto to_string() const noexcept -> std::string override
+    {
+        return std::format("CompositeGlyphDescription(min: {}, max: {})",
+                           m_header.min(),
+                           m_header.max());
+    }
+};
+
 class GlyphData : public Table {
     // https://learn.microsoft.com/en-us/typography/opentype/spec/glyf
 
@@ -321,6 +517,10 @@ public:
     {
         if (glyphID >= m_glyphs.size())
             return nullptr;
+
+        if (m_glyphs[glyphID]->contours().empty()) {
+            m_glyphs[glyphID]->process(m_glyphs);
+        }
 
         return m_glyphs[glyphID];
     }

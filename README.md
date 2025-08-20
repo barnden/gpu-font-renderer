@@ -12,10 +12,11 @@ I can't afford [slug](https://sluglibrary.com/) so I'm trying to implement my GP
     - [x] [`head`](https://learn.microsoft.com/en-us/typography/opentype/spec/head)
     - [x] [`loca`](https://learn.microsoft.com/en-us/typography/opentype/spec/loca)
     - [x] [`maxp`](https://learn.microsoft.com/en-us/typography/opentype/spec/maxp)
-    - [ ] [`glyf`](https://learn.microsoft.com/en-us/typography/opentype/spec/glyf)
+    - [x] [`glyf`](https://learn.microsoft.com/en-us/typography/opentype/spec/glyf)
       - [x] Glyph Headers
       - [x] Simple Glyph Descriptors
-      - [ ] Composite Glyph Descriptors
+      - [x] Composite Glyph Descriptors
+        - [ ] Handle the case when `ARGS_ARE_XY_VALUES` is unset.
     - [ ] [`hmtx`](https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx)
     - [ ] [`vmtx`](https://learn.microsoft.com/en-us/typography/opentype/spec/vmtx)
       - Low priority.

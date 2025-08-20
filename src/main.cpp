@@ -30,20 +30,15 @@ int main(int argc, char** argv)
     auto const& cmap = *font.get<CharacterMap>();
     std::println("{}", cmap);
     {
-        std::println("Character '{}' maps to glyph {}.", 'a', cmap.map('a'));
-        auto glyph = glyf[cmap.map('a')];
+        u16 chr = u'\u01FD';
+        std::println("Character '{}' maps to glyph {}.", chr, cmap.map(chr));
+        auto glyph = glyf[cmap.map(chr)];
 
-        if (glyph != nullptr)
-            std::println("\t{}", *glyph);
-    }
+        if (glyph != nullptr) {
+            std::println("{}", *glyph);
 
-    for (auto i = 0; i < 10; i++) {
-        auto glyph = glyf[i];
-
-        if (glyph != nullptr)
-            std::println("\t{}", *glyph);
-        else {
-            std::println("\tGlyph {} has no data.", i);
+            for (auto&& [i, contour] : std::views::enumerate(glyph->contours()))
+                std::println("\tContour {}: {}", i, contour);
         }
     }
 }

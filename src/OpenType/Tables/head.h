@@ -112,12 +112,13 @@ public:
 
     [[nodiscard]] auto to_string() const noexcept -> std::string
     {
-        return std::format("Head(version: {}.{}, fontRevision: {}, min: ({}; {}), max: ({}, {}), indexToLocFormat: {})",
+        return std::format("Head(version: {}.{}, fontRevision: {}, min: ({}; {}), max: ({}, {}), unitsPerEm: {}, indexToLocFormat: {})",
                            majorVersion,
                            minorVersion,
                            fontRevision.value(),
                            xMin, yMin,
                            xMax, yMax,
+                           unitsPerEm,
                            indexToLocFormat);
     }
 };
