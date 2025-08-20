@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <bitset>
 #include <cstdlib>
@@ -15,6 +16,251 @@
 #include "OpenType/Tables/Table.h"
 #include "OpenType/Tables/loca.h"
 
+class GlyphHeader {
+    i16 numberOfContours;
+    i16 xMin;
+    i16 yMin;
+    i16 xMax;
+    i16 yMax;
+
+public:
+    auto read(std::ifstream& file) -> bool
+    {
+        for (auto&& member : {
+                 &numberOfContours,
+                 &xMin,
+                 &yMin,
+                 &xMax,
+                 &yMax }) {
+            file.read(reinterpret_cast<char*>(member), sizeof(i16));
+            *member = ntohs(*member);
+        }
+
+        return true;
+    }
+
+    [[nodiscard]] auto to_string() const noexcept -> std::string
+    {
+        return std::format("GlyphHeader(numberOfContours: {}, min: ({}; {}), max: ({}; {}))",
+                           numberOfContours,
+                           xMin, yMin,
+                           xMax, yMax);
+    }
+
+    [[nodiscard]] auto contours() const -> i16
+    {
+        return numberOfContours;
+    }
+
+    [[nodiscard]] auto min() const -> std::pair<i16, i16>
+    {
+        return std::make_tuple(xMin, yMin);
+    }
+
+    [[nodiscard]] auto max() const -> std::pair<i16, i16>
+    {
+        return std::make_tuple(xMax, yMax);
+    }
+};
+
+class BaseGlyphDescription {
+protected:
+    friend class GlyphData;
+    GlyphHeader m_header;
+
+public:
+    virtual ~BaseGlyphDescription() = default;
+
+    auto header() const -> GlyphHeader const&
+    {
+        return m_header;
+    }
+
+    virtual auto read(std::ifstream& file) -> bool = 0;
+    [[nodiscard]] virtual auto contours() const noexcept -> std::vector<std::vector<std::pair<i16, i16>>> const& = 0;
+    [[nodiscard]] virtual auto to_string() const noexcept -> std::string = 0;
+};
+
+class SimpleGlyphDescription : public BaseGlyphDescription {
+    friend class GlyphData;
+
+    enum Flags {
+        ON_CURVE_POINT,
+        X_SHORT_VECTOR,
+        Y_SHORT_VECTOR,
+        REPEAT,
+        X_SAME_OR_POSITIVE,
+        Y_SAME_OR_POSITIVE,
+        OVERLAP_SIMPLE,
+        RESERVED,
+        Num_FLAGS
+    };
+    using flag_t = std::bitset<Flags::Num_FLAGS>;
+
+    std::vector<u16> m_contour_ends;
+    std::vector<u8> m_instructions;
+    std::vector<flag_t> m_flags;
+    std::vector<std::vector<std::pair<i16, i16>>> m_contours;
+
+    auto wrap(int v, int delta, int minval, int maxval) -> int
+    {
+        const int mod = maxval + 1 - minval;
+        v += delta - minval;
+        v += (1 - v / mod) * mod;
+        return v % mod + minval;
+    }
+
+    void process_points(std::vector<std::pair<i16, i16>>&& points)
+    {
+        // A file-size optimization is done with the points array:
+        // Points with repeated on- or off-curve characteristics imply
+        // a control point with opposite characteristic at the midpoint.
+        m_contours.resize(m_contour_ends.size());
+
+        for (auto&& [idx, contour, end] : std::views::zip(std::views::iota(0), m_contours, m_contour_ends)) {
+            auto const start = (idx == 0) ? 0 : (m_contour_ends[idx - 1] + 1);
+            bool should_shift = false;
+
+            for (auto i = start; i <= end; i++) {
+                auto const prev = wrap(i, -1, start, end);
+
+                auto&& [x, y] = points[i];
+                auto touching = m_flags[i][Flags::ON_CURVE_POINT];
+
+                auto&& [x_prev, y_prev] = points[prev];
+                auto touching_prev = m_flags[prev][Flags::ON_CURVE_POINT];
+
+                if (touching == touching_prev) {
+                    auto midpoint = std::make_tuple((x + x_prev) / 2, (y + y_prev) / 2);
+
+                    if (contour.empty())
+                        should_shift = touching;
+
+                    contour.push_back(std::move(midpoint));
+                }
+
+                if (contour.empty())
+                    should_shift = !touching;
+
+                contour.push_back(points[i]);
+            }
+
+            // For my purposes, I prefer the first point of the contour to be on-surface
+            if (should_shift) {
+                std::rotate(contour.begin(), contour.begin() + 1, contour.end());
+            }
+        }
+    }
+
+public:
+    [[nodiscard]] virtual auto contours() const noexcept -> std::vector<std::vector<std::pair<i16, i16>>> const& override
+    {
+        return m_contours;
+    }
+
+    virtual auto read(std::ifstream& file) -> bool override
+    {
+        if (m_header.contours() < 0)
+            return false;
+
+        /**
+         * SPEC: If a glyph has zero contours, no additional glyph data beyond the header is required.
+         */
+        if (m_header.contours() == 0)
+            return true;
+
+        m_contour_ends.resize(m_header.contours());
+
+        for (auto& end_point : m_contour_ends) {
+            file.read(reinterpret_cast<char*>(&end_point), sizeof(u16));
+            end_point = ntohs(end_point);
+        }
+
+        u16 num_instructions = 0;
+        file.read(reinterpret_cast<char*>(&num_instructions), sizeof(u16));
+        num_instructions = ntohs(num_instructions);
+
+        if (num_instructions > 0) {
+            m_instructions.resize(num_instructions);
+
+            for (auto& instruction : m_instructions) {
+                file.read(reinterpret_cast<char*>(&instruction), sizeof(u8));
+            }
+        }
+
+        auto num_points = m_contour_ends.back() + 1;
+        m_flags.resize(num_points);
+
+        auto points = std::vector<std::pair<i16, i16>>(num_points);
+
+        {
+            auto i = 0;
+            while (i < num_points) {
+                u8 temp = 0;
+                file.read(reinterpret_cast<char*>(&temp), sizeof(u8));
+
+                flag_t point_flags(temp);
+                m_flags[i++] = point_flags;
+
+                if (!point_flags[Flags::REPEAT])
+                    continue;
+
+                file.read(reinterpret_cast<char*>(&temp), sizeof(u8));
+
+                for (auto j = 0; j < temp; j++) {
+                    m_flags[i++] = point_flags;
+                }
+            }
+        }
+
+        auto read_coordinates = [&]<size_t I>(Flags short_vector, Flags same_or_positive) {
+            for (auto&& [i, flag] : std::views::enumerate(m_flags)) {
+                i16 last = (i == 0) ? 0 : std::get<I>(points[i - 1]);
+                bool is_byte = flag[short_vector];
+                bool is_same_or_positive = flag[same_or_positive];
+
+                auto& coordinate = std::get<I>(points[i]);
+
+                if (is_byte) {
+                    file.read(reinterpret_cast<char*>(&coordinate), sizeof(u8));
+
+                    coordinate = (is_same_or_positive ? coordinate : -coordinate) + last;
+
+                    continue;
+                }
+
+                if (is_same_or_positive) {
+                    if (i == 0)
+                        continue;
+
+                    coordinate = last;
+                    continue;
+                }
+
+                file.read(reinterpret_cast<char*>(&coordinate), sizeof(i16));
+                coordinate = ntohs(coordinate) + last;
+            }
+        };
+
+        read_coordinates.template operator()<0>(X_SHORT_VECTOR, X_SAME_OR_POSITIVE);
+        read_coordinates.template operator()<1>(Y_SHORT_VECTOR, Y_SAME_OR_POSITIVE);
+
+        process_points(std::move(points));
+
+        return true;
+    }
+
+    [[nodiscard]] virtual auto to_string() const noexcept -> std::string override
+    {
+        return std::format("SimpleGlyphDescription(min: {}, max: {}, contours: {}, points: {}, instructions: {})",
+                           m_header.min(),
+                           m_header.max(),
+                           m_header.contours(),
+                           m_contour_ends.back(), // SPEC: The number of points is determined by the last entry in the endPtsOfContours array
+                           m_instructions.size());
+    }
+};
+
 class GlyphData : public Table {
     // https://learn.microsoft.com/en-us/typography/opentype/spec/glyf
 
@@ -22,183 +268,6 @@ public:
     static constexpr TableTag g_identifier { 'g', 'l', 'y', 'f' };
 
 private:
-    class GlyphHeader : public Table {
-        i16 numberOfContours;
-        i16 xMin;
-        i16 yMin;
-        i16 xMax;
-        i16 yMax;
-
-    public:
-        virtual auto read(std::ifstream& file) -> bool override
-        {
-            for (auto&& member : {
-                     &numberOfContours,
-                     &xMin,
-                     &yMin,
-                     &xMax,
-                     &yMax }) {
-                file.read(reinterpret_cast<char*>(member), sizeof(i16));
-                *member = ntohs(*member);
-            }
-
-            return true;
-        }
-
-        [[nodiscard]] auto to_string() const noexcept -> std::string
-        {
-            return std::format("GlyphHeader(numberOfContours: {}, min: ({}; {}), max: ({}; {}))",
-                               numberOfContours,
-                               xMin, yMin,
-                               xMax, yMax);
-        }
-
-        [[nodiscard]] auto contours() const -> i16
-        {
-            return numberOfContours;
-        }
-
-        [[nodiscard]] auto min() const -> std::tuple<i16, i16>
-        {
-            return std::make_tuple(xMin, yMin);
-        }
-
-        [[nodiscard]] auto max() const -> std::tuple<i16, i16>
-        {
-            return std::make_tuple(xMax, yMax);
-        }
-    };
-
-    struct BaseGlyphDescription {
-        GlyphHeader header;
-        virtual ~BaseGlyphDescription() = default;
-
-        virtual auto read(std::ifstream& file) -> bool = 0;
-        [[nodiscard]] virtual auto to_string() const noexcept -> std::string = 0;
-    };
-
-    struct SimpleGlyphDescription : public BaseGlyphDescription {
-        enum Flags {
-            ON_CURVE_POINT,
-            X_SHORT_VECTOR,
-            Y_SHORT_VECTOR,
-            REPEAT,
-            X_SAME_OR_POSITIVE,
-            Y_SAME_OR_POSITIVE,
-            OVERLAP_SIMPLE,
-            RESERVED,
-            Num_FLAGS
-        };
-        using flag_t = std::bitset<Flags::Num_FLAGS>;
-
-        std::vector<u16> endPtsOfContours;
-        u16 instructionLength;
-        std::vector<u8> instructions;
-        std::vector<flag_t> flags;
-        std::vector<i16> xCoordinates;
-        std::vector<i16> yCoordinates;
-
-        virtual auto read(std::ifstream& file) -> bool override
-        {
-            if (header.contours() < 0)
-                return false;
-
-            /**
-             * SPEC: If a glyph has zero contours, no additional glyph data beyond the header is required.
-             */
-            if (header.contours() == 0)
-                return true;
-
-            endPtsOfContours.resize(header.contours());
-
-            for (auto& end_point : endPtsOfContours) {
-                file.read(reinterpret_cast<char*>(&end_point), sizeof(u16));
-                end_point = ntohs(end_point);
-            }
-
-            file.read(reinterpret_cast<char*>(&instructionLength), sizeof(u16));
-            instructionLength = ntohs(instructionLength);
-
-            if (instructionLength > 0) {
-                instructions.resize(instructionLength);
-
-                for (auto& instruction : instructions) {
-                    file.read(reinterpret_cast<char*>(&instruction), sizeof(u8));
-                    instruction = ntohs(instruction);
-                }
-            }
-
-            auto num_points = endPtsOfContours.back();
-            flags.resize(num_points);
-            xCoordinates.resize(num_points);
-            yCoordinates.resize(num_points);
-
-            {
-                auto i = 0;
-                while (i < num_points) {
-                    u8 temp = 0;
-                    file.read(reinterpret_cast<char*>(&temp), sizeof(u8));
-
-                    flag_t point_flags(temp);
-                    flags[i] = point_flags;
-
-                    if (point_flags[Flags::REPEAT]) {
-                        file.read(reinterpret_cast<char*>(&temp), sizeof(u8));
-
-                        for (auto j = 0; j < temp; j++) {
-                            flags[i] = point_flags;
-                            i++;
-                        }
-                    }
-                    i++;
-                }
-            }
-
-            auto read_coordinates = [&](std::vector<i16>& coordinates, Flags short_vector, Flags same_or_positive) {
-                for (auto&& [i, flag] : std::views::enumerate(flags)) {
-                    bool is_byte = flag[short_vector];
-                    bool is_same_or_positive = flag[same_or_positive];
-
-                    auto& coordinate = coordinates[i];
-
-                    if (is_byte) {
-                        file.read(reinterpret_cast<char*>(&coordinate), sizeof(u8));
-
-                        coordinate = is_same_or_positive ? coordinate : -coordinate;
-
-                        continue;
-                    }
-
-                    if (is_same_or_positive) {
-                        if (i == 0)
-                            continue;
-
-                        coordinate = xCoordinates[i - 1];
-                        continue;
-                    }
-
-                    file.read(reinterpret_cast<char*>(&coordinate), sizeof(u16));
-                    coordinate = ntohs(coordinate);
-                }
-            };
-
-            read_coordinates(xCoordinates, X_SHORT_VECTOR, X_SAME_OR_POSITIVE);
-            read_coordinates(yCoordinates, Y_SHORT_VECTOR, Y_SAME_OR_POSITIVE);
-
-            return true;
-        }
-
-        [[nodiscard]] virtual auto to_string() const noexcept -> std::string override
-        {
-            return std::format("SimpleGlyphDescription(min: {}, max: {}, contours: {}, points: {}, instructions: {})",
-                               header.min(),
-                               header.max(),
-                               header.contours(),
-                               endPtsOfContours.back(), // SPEC: The number of points is determined by the last entry in the endPtsOfContours array
-                               instructionLength);
-        }
-    };
-
     friend class OpenType;
 
     std::shared_ptr<IndexToLocation> m_location;
@@ -229,17 +298,13 @@ public:
             GlyphHeader header {};
             header.read(file);
 
-            if (header.contours() < 0) {
-                std::println(
-                    std::cerr,
-                    "Composite glyph description found in font; currently unimplemented.");
-
-                continue;
+            if (header.contours() >= 0) {
+                m_glyphs[i] = std::make_shared<SimpleGlyphDescription>();
+            } else {
+                m_glyphs[i] = std::make_shared<CompositeGlyphDescription>();
             }
 
-            m_glyphs[i] = std::make_shared<SimpleGlyphDescription>();
-            m_glyphs[i]->header = std::move(header);
-
+            m_glyphs[i]->m_header = std::move(header);
             m_glyphs[i]->read(file);
         }
 
