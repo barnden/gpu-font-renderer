@@ -1,9 +1,9 @@
 #pragma once
 
 #include <fstream>
+#include <map>
 #include <print>
 #include <string>
-#include <map>
 
 #include "Defines.h"
 #include "TableRecord.h"
@@ -32,6 +32,12 @@ struct TableDirectory {
 
         return result;
     }
+
+    [[nodiscard]] auto contains(TableTag const& tag) const noexcept -> bool
+    {
+        return tableRecords.contains(tag);
+    }
+
     [[nodiscard]] auto operator[](TableTag const& tag) const noexcept -> TableRecord const&
     {
         return tableRecords[tag];

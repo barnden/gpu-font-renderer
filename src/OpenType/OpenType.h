@@ -10,6 +10,8 @@
 
 #include "Defines.h"
 
+#include "OpenType/Tables/cmap.h"
+#include "OpenType/Tables/maxp.h"
 #include "TableDirectory.h"
 #include "TableRecord.h"
 #include "Tables.h"
@@ -18,6 +20,24 @@ class OpenType {
     TableDirectory m_directory;
     std::map<TableTag, std::shared_ptr<Table>> m_tables;
     bool m_valid = false;
+
+    template <class Table>
+    auto load_table(std::ifstream& file, auto&&... args) -> std::shared_ptr<Table>
+    {
+        if (!m_directory.contains(Table::g_identifier))
+            return nullptr;
+
+        auto table = std::make_shared<Table>(std::forward<decltype(args)>(args)...);
+
+        file.clear();
+        file.seekg(m_directory[Table::g_identifier].offset);
+        if (!table->read(file))
+            return nullptr;
+
+        m_tables[Table::g_identifier] = table;
+
+        return table;
+    };
 
     auto read(std::string const& path) -> bool
     {
@@ -30,53 +50,30 @@ class OpenType {
 
         m_directory.read(file);
 
-        auto head = std::make_shared<Head>();
+        auto head = load_table<Head>(file);
 
-        {
-            file.clear();
-            file.seekg(m_directory[Head::g_identifier].offset);
-            if (!head->read(file))
-                return false;
+        if (head == nullptr)
+            return false;
 
-            m_tables[Head::g_identifier] = head;
-        }
+        auto maxp = load_table<MaximumProfile>(file);
 
-        auto maxp = std::make_shared<MaximumProfile>();
-        {
-            file.clear();
-            file.seekg(m_directory[MaximumProfile::g_identifier].offset);
-            if (!maxp->read(file))
-                return false;
+        if (maxp == nullptr)
+            return false;
 
-            m_tables[MaximumProfile::g_identifier] = maxp;
-        }
+        auto loca = load_table<IndexToLocation>(file, head->indexToLocFormat == 0 ? 16 : 32, maxp->numGlyphs);
 
-        auto loca = std::make_shared<IndexToLocation>(head->indexToLocFormat == 0 ? 16 : 32, maxp->numGlyphs);
-        {
-            file.clear();
-            file.seekg(m_directory[IndexToLocation::g_identifier].offset);
-            if (!loca->read(file))
-                return false;
-            m_tables[IndexToLocation::g_identifier] = loca;
-        }
+        if (loca == nullptr)
+            return false;
 
-        auto glyf = std::make_shared<GlyphData>(loca);
-        {
-            file.clear();
-            file.seekg(m_directory[GlyphData::g_identifier].offset);
-            if (!glyf->read(file))
-                return false;
-            m_tables[GlyphData::g_identifier] = glyf;
-        }
+        auto glyf = load_table<GlyphData>(file, loca);
 
-        auto cmap = std::make_shared<CharacterMap>();
-        {
-            file.clear();
-            file.seekg(m_directory[CharacterMap::g_identifier].offset);
-            if (!cmap->read(file))
-                return false;
-            m_tables[CharacterMap::g_identifier] = cmap;
-        }
+        if (glyf == nullptr)
+            return false;
+
+        auto cmap = load_table<CharacterMap>(file);
+
+        if (cmap == nullptr)
+            return false;
 
         return true;
     }
