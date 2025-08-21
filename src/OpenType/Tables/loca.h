@@ -19,7 +19,7 @@ private:
     std::shared_ptr<char[]> m_data;
 
 public:
-    IndexToLocation(size_t stride, u32 numGlyphs)
+    IndexToLocation(size_t stride, u16 numGlyphs)
         : m_stride(stride)
         , m_size(numGlyphs + 1)
         , m_data(std::make_shared<char[]>(m_size * stride)) { };

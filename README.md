@@ -17,7 +17,8 @@ I can't afford [slug](https://sluglibrary.com/) so I'm trying to implement my GP
       - [x] Simple Glyph Descriptors
       - [x] Composite Glyph Descriptors
         - [ ] Handle the case when `ARGS_ARE_XY_VALUES` is unset.
-    - [ ] [`hmtx`](https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx)
+    - [x] [`hhea`](https://learn.microsoft.com/en-us/typography/opentype/spec/hhea)
+    - [x] [`hmtx`](https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx)
     - [ ] [`vmtx`](https://learn.microsoft.com/en-us/typography/opentype/spec/vmtx)
       - Low priority.
     - [ ] [`cmap`](https://learn.microsoft.com/en-us/typography/opentype/spec/cmap)
@@ -26,7 +27,7 @@ I can't afford [slug](https://sluglibrary.com/) so I'm trying to implement my GP
       - [ ] Subtable format 12
       - [ ] Subtable format 14
       - Formats 10 and 13 are considered low priority; formats 2, 6, 8 are not planned to be supported.
-- [ ] Extract Bezier control points from font
+- [x] Extract Bezier control points from font
 - [ ] GPU rendering (haven't thought about this part yet)
 
 ## References

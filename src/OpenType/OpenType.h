@@ -13,7 +13,6 @@
 #include "OpenType/Tables/cmap.h"
 #include "OpenType/Tables/maxp.h"
 #include "TableDirectory.h"
-#include "TableRecord.h"
 #include "Tables.h"
 
 class OpenType {
@@ -73,6 +72,16 @@ class OpenType {
         auto cmap = load_table<CharacterMap>(file);
 
         if (cmap == nullptr)
+            return false;
+
+        auto hhea = load_table<HorizontalHeader>(file);
+
+        if (hhea == nullptr)
+            return false;
+
+        auto htmx = load_table<HorizontalMetrics>(file, glyf->m_glyphs.size(), hhea->size());
+
+        if (htmx == nullptr)
             return false;
 
         return true;

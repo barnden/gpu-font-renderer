@@ -1,5 +1,4 @@
 #include "OpenType/OpenType.h"
-#include "OpenType/Tables/cmap.h"
 
 #include <cstdlib>
 #include <print>
@@ -41,4 +40,6 @@ int main(int argc, char** argv)
                 std::println("\tContour {}: {}", i, contour);
         }
     }
+
+    std::println("{}", *font.get<HorizontalHeader>());
 }
