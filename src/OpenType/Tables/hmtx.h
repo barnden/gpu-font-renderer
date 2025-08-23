@@ -38,6 +38,20 @@ public:
         : hMetrics(numberOfHMetrics)
         , leftSideBearings(numGlyphs - numberOfHMetrics) { };
 
+    [[nodiscard]] auto operator[](u16 glyphID) const -> std::optional<LongHorMetric>
+    {
+        if (glyphID < hMetrics.size())
+            return hMetrics[glyphID];
+
+        if (glyphID < hMetrics.size() + leftSideBearings.size())
+            return LongHorMetric {
+                .advanceWidth = 0xFFFF,
+                .lsb = leftSideBearings[glyphID - hMetrics.size()]
+            };
+
+        return std::nullopt;
+    }
+
     virtual auto read(std::ifstream& file) -> bool override
     {
         for (auto& record : hMetrics) {
