@@ -445,7 +445,6 @@ public:
 
     [[nodiscard]] virtual auto contours() const noexcept -> std::vector<std::vector<std::pair<i16, i16>>> const& override
     {
-        // TODO: Implement;
         return m_contours;
     }
 
@@ -518,10 +517,18 @@ public:
         if (glyphID >= m_glyphs.size())
             return nullptr;
 
+        if (m_glyphs[glyphID] == nullptr)
+            return nullptr;
+
         if (m_glyphs[glyphID]->contours().empty()) {
             m_glyphs[glyphID]->process(m_glyphs);
         }
 
         return m_glyphs[glyphID];
+    }
+
+
+    [[nodiscard]] auto size() const noexcept -> size_t {
+        return m_glyphs.size();
     }
 };

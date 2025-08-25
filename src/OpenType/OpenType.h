@@ -95,14 +95,14 @@ public:
     }
 
     template <typename T>
-    [[nodiscard]] auto get() noexcept -> std::shared_ptr<T>
+    [[nodiscard]] auto get() const noexcept -> std::shared_ptr<T>
     {
         static constexpr auto tag = T::g_identifier;
 
         if (!m_tables.contains(tag))
             return nullptr;
 
-        return std::static_pointer_cast<T>(m_tables[tag]);
+        return std::static_pointer_cast<T>(m_tables.at(tag));
     }
 
     [[nodiscard]] auto to_string() const noexcept -> std::string

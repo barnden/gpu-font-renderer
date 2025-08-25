@@ -2,7 +2,9 @@
 
 Work in progress.
 
-I can't afford [slug](https://sluglibrary.com/) so I'm trying to implement my GPU font renderer based on glyph outlines instead of using texture atlases or distance functions.
+I can't afford [slug](https://sluglibrary.com/), and I want to understand OpenType/TrueType.
+
+So I'm trying to implement my own OpenType parser and GPU font renderer based on glyph outlines 
 
 ## TODO
 - [ ] Barebones OpenType parser
@@ -28,7 +30,7 @@ I can't afford [slug](https://sluglibrary.com/) so I'm trying to implement my GP
       - [ ] Subtable format 14
       - Formats 10 and 13 are considered low priority; formats 2, 6, 8 are not planned to be supported.
 - [x] Extract Bezier control points from font
-- [ ] GPU rendering (haven't thought about this part yet)
+- [x] GPU rendering
 
 ## References
 - Eric Lengyel, [GPU-Centered Font Rendering Directly from Glyph Outlines](https://jcgt.org/published/0006/02/02/). Journal of Computer Graphics Techniques, 2017.

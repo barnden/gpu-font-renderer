@@ -110,6 +110,10 @@ public:
         return true;
     }
 
+    [[nodiscard]] auto units() const noexcept -> u16 {
+        return unitsPerEm;
+    }
+
     [[nodiscard]] auto to_string() const noexcept -> std::string
     {
         return std::format("Head(version: {}.{}, fontRevision: {}, min: ({}; {}), max: ({}, {}), unitsPerEm: {}, indexToLocFormat: {})",
