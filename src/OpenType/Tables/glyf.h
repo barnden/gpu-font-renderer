@@ -217,7 +217,8 @@ public:
         }
 
         auto read_coordinates = [&]<size_t I>(Flags short_vector, Flags same_or_positive) {
-            for (auto&& [i, flag] : std::views::enumerate(m_flags)) {
+
+            for (auto&& [i, flag] : enumerate(m_flags)) {
                 i16 last = (i == 0) ? 0 : std::get<I>(points[i - 1]);
                 bool is_byte = flag[short_vector];
                 bool is_same_or_positive = flag[same_or_positive];

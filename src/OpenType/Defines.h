@@ -16,7 +16,13 @@ using u32 = uint32_t;
 using u64 = uint64_t;
 using TableTag = std::array<char, 4>;
 
-// Taken from https://stackoverflow.com/a/4410728
+#if __cpp_lib_ranges_enumerate == 202302L
+#define enumerate(v) std::views::enumerate(v)
+#else
+#define enumerate(v) std::views::zip(std::views::iota(0), v)
+#endif
+
+// Based off of https://stackoverflow.com/a/4410728
 #if defined(__linux__)
 #    include <endian.h>
 #elif defined(__FreeBSD__) || defined(__NetBSD__)
@@ -26,6 +32,9 @@ using TableTag = std::array<char, 4>;
 #    define be16toh(x) betoh16(x)
 #    define be32toh(x) betoh32(x)
 #    define be64toh(x) betoh64(x)
+#elif defined(__APPLE__)
+#include <libkern/_OSByteOrder.h>
+#define be64toh(x) __DARWIN_OSSwapInt64(x)
 #endif
 
 #if _MSC_VER && !__INTEL_COMPILER

@@ -67,6 +67,8 @@ template <size_t Format>
 struct Subtable { };
 
 struct BaseSubtable {
+    virtual ~BaseSubtable() { };
+
     // Perform mapping from character to glyph index;
     [[nodiscard]] virtual auto map(u16) const -> std::optional<u32>
     {
@@ -601,7 +603,8 @@ public:
         return true;
     }
 
-    [[nodiscard]] auto map(u16 chr) const noexcept -> u16 {
+    [[nodiscard]] auto map(u16 chr) const noexcept -> u16
+    {
         // FIXME: Use platform/encoding to choose proper subtable
         return subtables[0]->map(chr).value_or(0);
     }

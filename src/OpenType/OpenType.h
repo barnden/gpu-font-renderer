@@ -10,8 +10,6 @@
 
 #include "Defines.h"
 
-#include "OpenType/Tables/cmap.h"
-#include "OpenType/Tables/maxp.h"
 #include "TableDirectory.h"
 #include "Tables.h"
 

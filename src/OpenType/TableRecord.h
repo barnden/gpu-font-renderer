@@ -66,7 +66,7 @@ struct TableRecord {
             reinterpret_cast<u32*>(end),
             0ul,
             std::plus<u32> {},
-            ntohl);
+            [](auto value) { return ntohl(value); });
     }
 
     [[nodiscard]] auto to_string() const noexcept -> std::string
