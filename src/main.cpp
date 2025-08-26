@@ -64,6 +64,87 @@ auto create_buffers(OpenType const& font,
     points.update();
 }
 
+void add_glyph(u32 glyph_id,
+               Buffer<glm::vec3>& positions,
+               Buffer<glm::vec2>& texcoords,
+               Buffer<u32>& glyphs,
+               std::pair<float, float> min,
+               std::pair<float, float> max,
+               float advance = 0.0,
+               bool update = true)
+{
+    constexpr auto epsilon = 0.125;
+    std::initializer_list<glm::vec3> s_position = {
+        { min.first - epsilon, 0., min.second - epsilon },
+        { min.first - epsilon, 0., max.second + epsilon },
+        { max.first + epsilon, 0., min.second - epsilon },
+        { max.first + epsilon, 0., min.second - epsilon },
+        { max.first + epsilon, 0., max.second + epsilon },
+        { min.first - epsilon, 0., max.second + epsilon },
+    };
+
+    std::initializer_list<glm::vec2> s_texcoord = {
+        { min.first - epsilon, min.second - epsilon },
+        { min.first - epsilon, max.second + epsilon },
+        { max.first + epsilon, min.second - epsilon },
+        { max.first + epsilon, min.second - epsilon },
+        { max.first + epsilon, max.second + epsilon },
+        { min.first - epsilon, max.second + epsilon },
+    };
+
+    std::copy(s_texcoord.begin(), s_texcoord.end(), std::back_inserter(texcoords.data()));
+
+    for (auto i = 0uz; i < s_position.size(); i++) {
+        glyphs.data().push_back(glyph_id);
+
+        glm::vec3 data = *(s_position.begin() + i);
+        data += glm::vec3(advance, 0., 0.);
+        positions.data().push_back(data);
+    }
+
+    if (update) {
+        positions.update();
+        texcoords.update();
+        glyphs.update();
+    }
+}
+
+void add_glyphs(OpenType const& font,
+                std::string const& string,
+                Buffer<glm::vec3>& positions,
+                Buffer<glm::vec2>& texcoords,
+                Buffer<u32>& glyphs)
+{
+    auto const units_per_em = static_cast<float>(font.get<Head>()->units());
+    auto const& cmap = *font.get<CharacterMap>();
+    auto const& hmtx = *font.get<HorizontalMetrics>();
+    auto const& glyf = *font.get<GlyphData>();
+
+    auto advance = 0.f;
+    for (auto&& chr : string) {
+        auto glyph_id = cmap.map(chr);
+        auto width = hmtx[glyph_id]->advanceWidth / units_per_em;
+
+        if (auto glyph = glyf[glyph_id]) {
+            auto header = glyph->header();
+            add_glyph(glyph_id,
+                      positions,
+                      texcoords,
+                      glyphs,
+                      std::make_pair(header.min().first / units_per_em, header.min().second / units_per_em),
+                      std::make_pair(header.max().first / units_per_em, header.max().second / units_per_em),
+                      advance,
+                      false);
+        }
+
+        advance += width;
+    }
+
+    positions.update();
+    texcoords.update();
+    glyphs.update();
+}
+
 auto main(int argc, char** argv) -> int
 {
     if (argc < 2) {
@@ -71,10 +152,9 @@ auto main(int argc, char** argv) -> int
         return EXIT_FAILURE;
     }
 
-    char16_t chr = u'1';
+    std::string string = "Hello, World!";
     if (argc == 3) {
-        std::println("Displaying: {}", argv[2]);
-        chr = argv[2][0];
+        string = std::string { argv[2] };
     }
 
     auto font = OpenType(std::string { argv[1] });
@@ -90,36 +170,14 @@ auto main(int argc, char** argv) -> int
 
     create_buffers(font, index, contours, points);
 
-    auto positions = Buffer<glm::vec3>(GL_ARRAY_BUFFER,
-                                       {
-                                           { 0., 0., 0. },
-                                           { 0., 0., 1. },
-                                           { 1., 0., 0. },
-                                           { 1., 0., 0. },
-                                           { 1., 0., 1. },
-                                           { 0., 0., 1. },
-                                       });
+    auto positions = Buffer<glm::vec3>(GL_ARRAY_BUFFER);
+    auto texcoords = Buffer<glm::vec2>(GL_ARRAY_BUFFER);
+    auto glyphs = Buffer<u32>(GL_ARRAY_BUFFER);
 
-    auto texcoords = Buffer<glm::vec2>(GL_ARRAY_BUFFER,
-                                       {
-                                           { 0., 0. },
-                                           { 0., 1. },
-                                           { 1., 0. },
-                                           { 1., 0. },
-                                           { 1., 1. },
-                                           { 0., 1. },
-                                       });
-
-    auto glyphs = Buffer<u32>(GL_ARRAY_BUFFER, {
-                                                   font.get<CharacterMap>()->map(chr),
-                                                   font.get<CharacterMap>()->map(chr),
-                                                   font.get<CharacterMap>()->map(chr),
-                                                   font.get<CharacterMap>()->map(chr),
-                                                   font.get<CharacterMap>()->map(chr),
-                                                   font.get<CharacterMap>()->map(chr),
-                                               });
+    add_glyphs(font, string, positions, texcoords, glyphs);
 
     auto camera = Camera();
+    bool has_update = false;
 
     auto mouse_move = [&](GLFWwindow* window, double x, double y) {
         auto state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
@@ -128,6 +186,8 @@ auto main(int argc, char** argv) -> int
             return;
 
         camera.mouse_moved(x, y);
+
+        has_update = true;
     };
 
     auto mouse_button = [&](GLFWwindow* window,
@@ -151,10 +211,12 @@ auto main(int argc, char** argv) -> int
         bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
         bool alt = (mods & GLFW_MOD_ALT) != 0;
         camera.mouse_clicked(static_cast<float>(x),
-                             static_cast<float>(x),
+                             static_cast<float>(y),
                              shift,
                              ctrl,
                              alt);
+
+        has_update = true;
     };
 
     auto program = Program("../resources/Glyph.vertex.glsl", "../resources/Glyph.fragment.glsl");
@@ -166,9 +228,13 @@ auto main(int argc, char** argv) -> int
 
     window.on_mouse_move(mouse_move);
     window.on_mouse_button(mouse_button);
+    window.on_resize([&](auto...) { has_update = true; });
 
     window.render(
         [&](Window const& window) {
+            if (!has_update)
+                return;
+
             static auto P = MatrixStack();
             static auto MV = MatrixStack();
             glEnable(GL_PROGRAM_POINT_SIZE);
@@ -191,7 +257,7 @@ auto main(int argc, char** argv) -> int
             {
                 utils::Lock prog_lock(program);
 
-                glClearColor(1., 1., 1., 1.);
+                glClearColor(0.3, 0.3, 0.6, 1.);
                 glViewport(0, 0, width, height);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -219,7 +285,6 @@ auto main(int argc, char** argv) -> int
                     glyphs.bind();
                     glVertexAttribIPointer(program.get("i_Glyph"_a), 1, GL_UNSIGNED_INT, 0, 0);
                 }
-
                 glDrawArrays(GL_TRIANGLES, 0, positions.data().size());
 
                 glDisableVertexAttribArray(program.get("i_Position"_a));
@@ -231,5 +296,7 @@ auto main(int argc, char** argv) -> int
 
             MV.pop();
             P.pop();
+
+            has_update = false;
         });
 }
