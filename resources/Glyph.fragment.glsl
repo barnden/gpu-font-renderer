@@ -15,6 +15,11 @@ flat in uvec2 v_Contours;
 
 out vec4 o_FragColor;
 
+vec2 rotate(vec2 v)
+{
+    return vec2(v.y, -v.x);
+}
+
 vec2 interpolate(in float t,
                  in vec2 p1,
                  in vec2 p2,
@@ -24,22 +29,19 @@ vec2 interpolate(in float t,
 }
 
 void get_contribution(inout float alpha,
-                      in float scale,
-                      in int s,
-                      in int t,
                       in vec2 p1,
                       in vec2 p2,
                       in vec2 p3)
 {
-    int shift = 2 * int(p1[t] > 0) + 4 * int(p2[t] > 0) + 8 * int(p3[t] > 0);
+    int shift = 2 * int(p1.t > 0) + 4 * int(p2.t > 0) + 8 * int(p3.t > 0);
     int result = 0x2E74 >> shift;
 
     if ((result & 3) == 0)
         return;
 
-    float a = p1[t] - 2.0 * p2[t] + p3[t];
-    float b = p1[t] - p2[t];
-    float c = p1[t];
+    float a = p1.t - 2.0 * p2.t + p3.t;
+    float b = p1.t - p2.t;
+    float c = p1.t;
 
     float t1 = 0.0;
     float t2 = 0.0;
@@ -54,11 +56,11 @@ void get_contribution(inout float alpha,
     }
 
     if ((result & 1) > 0) {
-        alpha += scale * clamp(512.0 * interpolate(t1, p1, p2, p3)[s] + 0.5, 0.0, 1.0);
+        alpha += clamp(32.0 * interpolate(t1, p1, p2, p3).s + 0.5, 0.0, 1.0);
     }
 
     if ((result & 2) > 0) {
-        alpha -= scale * clamp(512.0 * interpolate(t2, p1, p2, p3)[s] + 0.5, 0.0, 1.0);
+        alpha -= clamp(32.0 * interpolate(t2, p1, p2, p3).s + 0.5, 0.0, 1.0);
     }
 }
 
@@ -80,10 +82,15 @@ void main()
             vec2 p2 = b_Points[contour_start + ((j + 1) % num_points)] - v_TexCoord;
             vec2 p3 = b_Points[contour_start + ((j + 2) % num_points)] - v_TexCoord;
 
-            get_contribution(alpha, 1.0, 0, 1, p1, p2, p3);
-            get_contribution(alpha, -1.0, 1, 0, p1, p2, p3);
+            get_contribution(alpha, p1, p2, p3);
+            get_contribution(alpha, rotate(p1), rotate(p2), rotate(p3));
         }
     }
 
-    o_FragColor = vec4(vec3(0.), clamp(alpha, 0.0, 1.0));
+    alpha = clamp(alpha, 0.0, 1.0);
+
+    if (alpha < 1e-3)
+        discard;
+
+    o_FragColor = vec4(vec3(0.), alpha);
 }
