@@ -17,6 +17,7 @@ class Window {
     static inline std::unordered_map<GLFWwindow*, std::bitset<128>> s_keys;
     static inline std::unordered_map<GLFWwindow*, std::function<void(GLFWwindow*, int, int, int)>> s_mouse_button;
     static inline std::unordered_map<GLFWwindow*, std::function<void(GLFWwindow*, double, double)>> s_mouse_move;
+    static inline std::unordered_map<GLFWwindow*, std::function<void(GLFWwindow*, int, int)>> s_resize;
 
     static constexpr auto error_callback(auto code, auto desc) -> void
     {
@@ -67,6 +68,11 @@ class Window {
         s_mouse_move[window](window, x, y);
     }
 
+    static constexpr auto window_resize_callback(GLFWwindow* window, int width, int height)
+    {
+        s_resize[window](window, width, height);
+    }
+
 public:
     Window(std::string const& title,
            int width = 640,
@@ -106,6 +112,12 @@ public:
         glfwTerminate();
     }
 
+    auto on_resize(std::function<void(GLFWwindow*, int, int)> callback)
+    {
+        s_resize[m_window] = callback;
+        glfwSetWindowSizeCallback(m_window, window_resize_callback);
+    }
+
     auto on_mouse_button(std::function<void(GLFWwindow*, int, int, int)> callback)
     {
         s_mouse_button[m_window] = callback;
@@ -123,7 +135,8 @@ public:
         return s_keys[m_window];
     }
 
-    [[nodiscard]] auto get() const noexcept -> GLFWwindow* {
+    [[nodiscard]] auto get() const noexcept -> GLFWwindow*
+    {
         return m_window;
     }
 
