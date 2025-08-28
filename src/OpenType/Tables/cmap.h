@@ -409,14 +409,64 @@ struct Subtable<12> : BaseSubtable {
     u32 numGroups;
     std::vector<SequentialMapGroup> groups;
 
-    [[nodiscard]] virtual auto map(u16) const -> std::optional<u32> override
+    [[nodiscard]] virtual auto map(u16 chr) const -> std::optional<u32> override
     {
-        ASSERT_NOT_REACHED;
+        // FIXME: Probably should do some sort of caching and binary search
+        // FIXME: Need to accept u32 instead of u16 for chr, on all subtable map() methods
+
+        for (auto&& group : groups) {
+            if (group.startCharCode <= chr && group.endCharCode >= chr) {
+                return group.startGlyphID + (chr - group.startCharCode);
+            }
+        }
+
+#ifndef NDEBUG
+        std::println(std::cerr,
+                     "[cmap] Subtable(type: 12) attempted to map chr \\u{:04X}.",
+                     chr);
+#endif
+
+        return std::nullopt;
     }
 
-    virtual auto read(std::ifstream&) -> bool override
+    virtual auto read(std::ifstream& file) -> bool override
     {
+        size_t base = file.tellg();
+        static constexpr auto fields = std::make_tuple(
+            &Subtable<12>::format,
+            &Subtable<12>::reserved,
+            &Subtable<12>::length,
+            &Subtable<12>::language,
+            &Subtable<12>::numGroups);
+
+        std::apply([&](auto&&... members) {
+            ([&](auto member) {
+                using MemberType = decltype(this->*member);
+                file.read(reinterpret_cast<char*>(&(this->*member)), sizeof(this->*member));
+
+                if constexpr (sizeof(MemberType) == 2) {
+                    this->*member = ntohs(this->*member);
+                } else if constexpr (sizeof(MemberType) == 4) {
+                    this->*member = ntohl(this->*member);
+                } else {
         ASSERT_NOT_REACHED;
+                }
+            }(members),
+             ...);
+        },
+                   fields);
+
+        groups.resize(numGroups);
+
+        for (auto&& group : groups) {
+            if (!group.read(file))
+                return false;
+
+            if (static_cast<size_t>(file.tellg()) - base > length)
+                return false;
+        }
+
+        return true;
     }
 };
 
@@ -573,11 +623,13 @@ public:
             case 4:
                 subtable = std::make_shared<Subtable<4>>();
                 break;
+            case 12:
+                subtable = std::make_shared<Subtable<12>>();
+                break;
             case 2:
             case 6:
             case 8:
             case 10:
-            case 12:
             case 13:
             case 14:
 #ifndef NDEBUG
