@@ -291,7 +291,7 @@ struct Subtable<4> : BaseSubtable {
             offset = ntohs(offset);
         }
 
-        auto num_bytes_read = base - static_cast<size_t>(file.tellg());
+        auto num_bytes_read = static_cast<size_t>(file.tellg()) - base;
         if (num_bytes_read > static_cast<size_t>(length))
             return false;
 
