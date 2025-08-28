@@ -77,7 +77,7 @@ public:
         return m_header;
     }
 
-    virtual auto process(std::vector<std::shared_ptr<BaseGlyphDescription>> const&) -> void { };
+    virtual auto composite(std::vector<std::shared_ptr<BaseGlyphDescription>> const&) -> void { };
 
     virtual auto read(std::ifstream& file) -> bool = 0;
     [[nodiscard]] virtual auto contours() const noexcept -> std::vector<std::vector<std::pair<i16, i16>>> const& = 0;
@@ -309,9 +309,10 @@ class CompositeGlyphDescription : public BaseGlyphDescription {
         u16 m_glyphIndex;
 
         // SPEC: It can be u8, i8, u16, i16. Chose i32 container as all are representable.
-        i32 m_argument1;
-        i32 m_argument2;
 
+    public:
+        i32 m_argument1 = 0;
+        i32 m_argument2 = 0;
         F2DOT14 x_scale { 1.0 };
         F2DOT14 y_scale { 1.0 };
         F2DOT14 scale01 { 0.0 };
@@ -363,12 +364,24 @@ class CompositeGlyphDescription : public BaseGlyphDescription {
 
                 file.read(reinterpret_cast<char*>(&m_argument2), sizeof(u16));
                 m_argument2 = ntohs(m_argument2);
+
+                if (m_flags[Flags::ARGS_ARE_XY_VALUES]) {
+                    // Sign extend i16 to i32
+                    m_argument1 = static_cast<i16>(m_argument1);
+                    m_argument2 = static_cast<i16>(m_argument2);
+                }
             } else {
                 file.read(reinterpret_cast<char*>(&temp), sizeof(u16));
                 temp = ntohs(temp);
 
-                m_argument1 = (temp >> 8) & 0xFF;
-                m_argument2 = temp & 0xFF;
+                if (m_flags[Flags::ARGS_ARE_XY_VALUES]) {
+                    // Sign extend i8 to i32
+                    m_argument1 = static_cast<i8>((temp >> 8) & 0xFF);
+                    m_argument2 = static_cast<i8>(temp & 0xFF);
+                } else {
+                    m_argument1 = (temp >> 8) & 0xFF;
+                    m_argument2 = temp & 0xFF;
+                }
             }
 
             if (m_flags[Flags::WE_HAVE_A_SCALE]) {
@@ -421,13 +434,13 @@ public:
         return true;
     }
 
-    virtual auto process(std::vector<std::shared_ptr<BaseGlyphDescription>> const& glyphData) -> void override
+    virtual auto composite(std::vector<std::shared_ptr<BaseGlyphDescription>> const& glyphData) -> void override
     {
         for (auto&& record : m_glyphs) {
             auto glyph = glyphData[record.glyph_id()];
 
             if (glyph->contours().empty())
-                glyph->process(glyphData);
+                glyph->composite(glyphData);
 
             for (auto&& contour : glyph->contours()) {
                 m_contours.push_back(contour);
@@ -522,14 +535,14 @@ public:
             return nullptr;
 
         if (m_glyphs[glyphID]->contours().empty()) {
-            m_glyphs[glyphID]->process(m_glyphs);
+            m_glyphs[glyphID]->composite(m_glyphs);
         }
 
         return m_glyphs[glyphID];
     }
 
-
-    [[nodiscard]] auto size() const noexcept -> size_t {
+    [[nodiscard]] auto size() const noexcept -> size_t
+    {
         return m_glyphs.size();
     }
 };
