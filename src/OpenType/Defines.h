@@ -1,9 +1,9 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <format>
-#include <cmath>
 
 using i8 = int8_t;
 using i16 = int16_t;
@@ -70,25 +70,32 @@ struct Fixed {
 
 struct F2DOT14 {
     static constexpr float MAX = 1. + 16383. / 16384.;
-    static constexpr float MIN = -MAX;
+    static constexpr float MIN = -2 - 16383. / 16384.;
 
     u16 data {};
 
-    F2DOT14(float value) {
+    F2DOT14(float value)
+    {
         float integral = 0.;
         float fractional = 0.;
 
         fractional = std::modf(value, &integral);
 
         data = (static_cast<i8>(integral) & 0x3) << 14;
-        data |= static_cast<u16>(fractional * 0xFFFF) >> 2;
+        data |= static_cast<u16>(std::abs(fractional) * 0x10000) & 0xFFFF;
     }
 
     [[nodiscard]] constexpr auto value() const noexcept -> float
     {
-        float val = data >> 14;
-        auto frac = data & 0x3FFF;
+        auto val = static_cast<float>(static_cast<i16>(data) >> 14);
+        auto sign = (val < 0.f) ? -1.f : 1.f;
+        auto frac = (data & 0x3FFF) / 16384.f;
 
-        return val + frac / 16383.;
+        return val + sign * frac;
+    }
+
+    [[nodiscard]] auto to_string() const noexcept -> std::string
+    {
+        return std::to_string(value());
     }
 };
