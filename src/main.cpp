@@ -1,3 +1,4 @@
+#include "OpenType/Defines.h"
 #include "OpenType/OpenType.h"
 #include "Renderer/Buffer.h"
 #include "Renderer/Camera.h"
@@ -68,28 +69,28 @@ void add_glyph(u32 glyph_id,
                Buffer<glm::vec3>& positions,
                Buffer<glm::vec2>& texcoords,
                Buffer<u32>& glyphs,
-               std::pair<float, float> min,
-               std::pair<float, float> max,
-               float advance = 0.0,
-               bool update = true)
+               glm::vec2 min,
+               glm::vec2 max,
+               glm::vec2 advance = { 0.0, 0.0 },
+               bool update = true,
+               float epsilon = 1. / 32.)
 {
-    constexpr auto epsilon = 0.125;
     std::initializer_list<glm::vec3> s_position = {
-        { min.first - epsilon, 0., min.second - epsilon },
-        { min.first - epsilon, 0., max.second + epsilon },
-        { max.first + epsilon, 0., min.second - epsilon },
-        { max.first + epsilon, 0., min.second - epsilon },
-        { max.first + epsilon, 0., max.second + epsilon },
-        { min.first - epsilon, 0., max.second + epsilon },
+        glm::vec3 { min.s, 0., min.t } + glm::vec3 { -epsilon, 0, -epsilon },
+        glm::vec3 { min.s, 0., max.t } + glm::vec3 { -epsilon, 0, +epsilon },
+        glm::vec3 { max.s, 0., min.t } + glm::vec3 { +epsilon, 0, -epsilon },
+        glm::vec3 { max.s, 0., min.t } + glm::vec3 { +epsilon, 0, -epsilon },
+        glm::vec3 { max.s, 0., max.t } + glm::vec3 { +epsilon, 0, +epsilon },
+        glm::vec3 { min.s, 0., max.t } + glm::vec3 { -epsilon, 0, +epsilon },
     };
 
     std::initializer_list<glm::vec2> s_texcoord = {
-        { min.first - epsilon, min.second - epsilon },
-        { min.first - epsilon, max.second + epsilon },
-        { max.first + epsilon, min.second - epsilon },
-        { max.first + epsilon, min.second - epsilon },
-        { max.first + epsilon, max.second + epsilon },
-        { min.first - epsilon, max.second + epsilon },
+        glm::vec2 { min.s, min.t } + glm::vec2 { -epsilon, -epsilon },
+        glm::vec2 { min.s, max.t } + glm::vec2 { -epsilon, +epsilon },
+        glm::vec2 { max.s, min.t } + glm::vec2 { +epsilon, -epsilon },
+        glm::vec2 { max.s, min.t } + glm::vec2 { +epsilon, -epsilon },
+        glm::vec2 { max.s, max.t } + glm::vec2 { +epsilon, +epsilon },
+        glm::vec2 { min.s, max.t } + glm::vec2 { -epsilon, +epsilon },
     };
 
     std::copy(s_texcoord.begin(), s_texcoord.end(), std::back_inserter(texcoords.data()));
@@ -98,7 +99,7 @@ void add_glyph(u32 glyph_id,
         glyphs.data().push_back(glyph_id);
 
         glm::vec3 data = *(s_position.begin() + i);
-        data += glm::vec3(advance, 0., 0.);
+        data += glm::vec3(advance.x, 0., advance.y);
         positions.data().push_back(data);
     }
 
@@ -120,10 +121,27 @@ void add_glyphs(OpenType const& font,
     auto const& hmtx = *font.get<HorizontalMetrics>();
     auto const& glyf = *font.get<GlyphData>();
 
-    auto advance = 0.f;
+    auto advance = glm::vec2(0.);
     for (auto&& chr : string) {
         auto glyph_id = cmap.map(chr);
-        auto width = hmtx[glyph_id]->advanceWidth / units_per_em;
+
+        float width = 0.f;
+
+        if (auto metrics = hmtx[glyph_id]) {
+            if (metrics->advanceWidth == 0xFFFF) {
+                // FIXME: Handle the case where advanceWidth is unset.
+                ASSERT_NOT_REACHED;
+            } else {
+                width = metrics->advanceWidth / units_per_em;
+            }
+        } else {
+            std::println(
+                std::cerr,
+                "Failed to find glyph \\u{:04X} in hmtx.",
+                glyph_id);
+
+            exit(EXIT_FAILURE);
+        }
 
         if (auto glyph = glyf[glyph_id]) {
             auto header = glyph->header();
@@ -131,13 +149,14 @@ void add_glyphs(OpenType const& font,
                       positions,
                       texcoords,
                       glyphs,
-                      std::make_pair(header.min().first / units_per_em, header.min().second / units_per_em),
-                      std::make_pair(header.max().first / units_per_em, header.max().second / units_per_em),
+                      glm::vec2(header.min().first, header.min().second) / units_per_em,
+                      glm::vec2(header.max().first, header.max().second) / units_per_em,
                       advance,
-                      false);
+                      false,
+                      64. / units_per_em);
         }
 
-        advance += width;
+        advance.x += width;
     }
 
     positions.update();
@@ -177,17 +196,15 @@ auto main(int argc, char** argv) -> int
     add_glyphs(font, string, positions, texcoords, glyphs);
 
     auto camera = Camera();
-    bool has_update = false;
 
     auto mouse_move = [&](GLFWwindow* window, double x, double y) {
         auto state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
 
         if (state != GLFW_PRESS)
-            return;
+            return false;
 
         camera.mouse_moved(x, y);
-
-        has_update = true;
+        return true;
     };
 
     auto mouse_button = [&](GLFWwindow* window,
@@ -196,6 +213,9 @@ auto main(int argc, char** argv) -> int
                             int mods) {
         (void)button;
 
+        if (action != GLFW_PRESS)
+            return false;
+
         double x;
         double y;
         glfwGetCursorPos(window, &x, &y);
@@ -203,9 +223,6 @@ auto main(int argc, char** argv) -> int
         int width;
         int height;
         glfwGetWindowSize(window, &width, &height);
-
-        if (action != GLFW_PRESS)
-            return;
 
         bool shift = (mods & GLFW_MOD_SHIFT) != 0;
         bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
@@ -216,7 +233,7 @@ auto main(int argc, char** argv) -> int
                              ctrl,
                              alt);
 
-        has_update = true;
+        return true;
     };
 
     auto program = Program("../resources/Glyph.vertex.glsl", "../resources/Glyph.fragment.glsl");
@@ -226,13 +243,21 @@ auto main(int argc, char** argv) -> int
                             "i_TexCoord",
                             "i_Glyph" });
 
+    auto debug = Program("../resources/Debug.vertex.glsl", "../resources/Debug.fragment.glsl");
+    debug.add_uniform({ "u_Projection",
+                        "u_ModelView" });
+    debug.add_attribute({ "i_Position",
+                          "i_TexCoord" });
+
     window.on_mouse_move(mouse_move);
     window.on_mouse_button(mouse_button);
-    window.on_resize([&](auto...) { has_update = true; });
+    window.on_resize([](auto...) { return true; });
 
+    // auto last = std::chrono::high_resolution_clock::now();
+    // std::println();
     window.render(
         [&](Window const& window) {
-            if (!has_update)
+            if (!window.data().update)
                 return;
 
             static auto P = MatrixStack();
@@ -254,12 +279,40 @@ auto main(int argc, char** argv) -> int
             glEnable(GL_BLEND);
             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+            glClearColor(0.3, 0.3, 0.6, 1.);
+            glViewport(0, 0, width, height);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            if (window.keys()[GLFW_KEY_W] || window.toggled_keys()[GLFW_KEY_Q]) {
+                utils::Lock prog_lock(debug);
+
+                if (window.keys()[GLFW_KEY_W])
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+                glUniformMatrix4fv(debug.get("u_Projection"_u), 1, GL_FALSE, glm::value_ptr(P.top()));
+                glUniformMatrix4fv(debug.get("u_ModelView"_u), 1, GL_FALSE, glm::value_ptr(MV.top()));
+
+                {
+                    utils::Lock pos_lock(positions);
+                    glEnableVertexAttribArray(debug.get("i_Position"_a));
+                    glVertexAttribPointer(debug.get("i_Position"_a), 3, GL_FLOAT, GL_FALSE, 0, 0);
+                }
+
+                {
+                    utils::Lock tex_lock(texcoords);
+                    glEnableVertexAttribArray(debug.get("i_TexCoord"_a));
+                    glVertexAttribPointer(debug.get("i_TexCoord"_a), 2, GL_FLOAT, GL_FALSE, 0, 0);
+                }
+
+                glDrawArrays(GL_TRIANGLES, 0, positions.data().size());
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+                if (window.keys()[GLFW_KEY_W])
+                    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            }
+
             {
                 utils::Lock prog_lock(program);
-
-                glClearColor(0.3, 0.3, 0.6, 1.);
-                glViewport(0, 0, width, height);
-                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
                 glUniformMatrix4fv(program.get("u_Projection"_u), 1, GL_FALSE, glm::value_ptr(P.top()));
                 glUniformMatrix4fv(program.get("u_ModelView"_u), 1, GL_FALSE, glm::value_ptr(MV.top()));
@@ -269,26 +322,27 @@ auto main(int argc, char** argv) -> int
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, index.get());
 
                 {
+                    utils::Lock pos_lock(positions);
                     glEnableVertexAttribArray(program.get("i_Position"_a));
-                    positions.bind();
                     glVertexAttribPointer(program.get("i_Position"_a), 3, GL_FLOAT, GL_FALSE, 0, 0);
                 }
 
                 {
+                    utils::Lock tex_lock(texcoords);
                     glEnableVertexAttribArray(program.get("i_TexCoord"_a));
-                    texcoords.bind();
                     glVertexAttribPointer(program.get("i_TexCoord"_a), 2, GL_FLOAT, GL_FALSE, 0, 0);
                 }
 
                 {
+                    utils::Lock glyph_lock(glyphs);
                     glEnableVertexAttribArray(program.get("i_Glyph"_a));
-                    glyphs.bind();
                     glVertexAttribIPointer(program.get("i_Glyph"_a), 1, GL_UNSIGNED_INT, 0, 0);
                 }
+
                 glDrawArrays(GL_TRIANGLES, 0, positions.data().size());
 
-                glDisableVertexAttribArray(program.get("i_Position"_a));
-                glDisableVertexAttribArray(program.get("i_TexCoord"_a));
+                glDisableVertexAttribArray(debug.get("i_Position"_a));
+                glDisableVertexAttribArray(debug.get("i_TexCoord"_a));
                 glDisableVertexAttribArray(program.get("i_Glyph"_a));
 
                 glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -297,6 +351,6 @@ auto main(int argc, char** argv) -> int
             MV.pop();
             P.pop();
 
-            has_update = false;
+            window.data().update = false;
         });
 }

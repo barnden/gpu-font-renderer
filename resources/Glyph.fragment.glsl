@@ -1,4 +1,4 @@
-#version 460
+#version 450
 
 layout(std430, binding = 0) readonly buffer ssbo_points
 {
@@ -11,13 +11,17 @@ layout(std430, binding = 1) readonly buffer ssbo_contours
 };
 
 in vec2 v_TexCoord;
+in float v_PixelsPerEm;
 flat in uvec2 v_Contours;
 
 out vec4 o_FragColor;
 
-vec2 rotate(vec2 v)
+vec2 rotate(vec2 v, float angle)
 {
-    return vec2(v.y, -v.x);
+    float c = cos(angle);
+    float s = sin(angle);
+
+    return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
 }
 
 vec2 interpolate(in float t,
@@ -56,14 +60,16 @@ void get_contribution(inout float alpha,
     }
 
     if ((result & 1) > 0) {
-        alpha += clamp(32.0 * interpolate(t1, p1, p2, p3).s + 0.5, 0.0, 1.0);
+        alpha += clamp(v_PixelsPerEm * interpolate(t1, p1, p2, p3).s + 0.5, 0.0, 1.0);
     }
 
     if ((result & 2) > 0) {
-        alpha -= clamp(32.0 * interpolate(t2, p1, p2, p3).s + 0.5, 0.0, 1.0);
+        alpha -= clamp(v_PixelsPerEm * interpolate(t2, p1, p2, p3).s + 0.5, 0.0, 1.0);
     }
 }
 
+const float PI = 3.14159265359;
+const int num_directions = 4;
 void main()
 {
     uint glyph_start = v_Contours.x;
@@ -82,15 +88,16 @@ void main()
             vec2 p2 = b_Points[contour_start + ((j + 1) % num_points)] - v_TexCoord;
             vec2 p3 = b_Points[contour_start + ((j + 2) % num_points)] - v_TexCoord;
 
-            get_contribution(alpha, p1, p2, p3);
-            get_contribution(alpha, rotate(p1), rotate(p2), rotate(p3));
+            for (int k = 0; k <= num_directions; k++) {
+                get_contribution(alpha, 
+                                 rotate(p1, float(k) * PI / float(num_directions)), 
+                                 rotate(p2, float(k) * PI / float(num_directions)), 
+                                 rotate(p3, float(k) * PI / float(num_directions)));
+            }
         }
     }
 
     alpha = clamp(alpha, 0.0, 1.0);
-
-    if (alpha < 1e-3)
-        discard;
 
     o_FragColor = vec4(vec3(0.), alpha);
 }
