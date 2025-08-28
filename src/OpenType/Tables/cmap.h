@@ -7,6 +7,7 @@
 #include <memory>
 #include <print>
 #include <ranges>
+#include <unordered_map>
 #include <vector>
 
 #include "OpenType/Defines.h"
@@ -68,6 +69,7 @@ struct Subtable { };
 
 struct BaseSubtable {
     virtual ~BaseSubtable() { };
+    [[nodiscard]] virtual auto type() const noexcept -> size_t = 0;
 
     // Perform mapping from character to glyph index;
     [[nodiscard]] virtual auto map(u16) const -> std::optional<u32>
@@ -85,12 +87,17 @@ struct BaseSubtable {
 };
 
 template <>
-struct Subtable<0> : BaseSubtable {
+struct Subtable<0> : public BaseSubtable {
     // Byte encoding table
     u16 format = 0;
     u16 length;
     u16 language;
     u8 glyphIdArray[256] {};
+
+    [[nodiscard]] virtual auto type() const noexcept -> size_t override
+    {
+        return 0;
+    }
 
     [[nodiscard]] virtual auto map(u16 chr) const -> std::optional<u32> override
     {
@@ -120,7 +127,7 @@ struct Subtable<0> : BaseSubtable {
 };
 
 template <>
-struct Subtable<2> : BaseSubtable {
+struct Subtable<2> : public BaseSubtable {
     struct Subheader {
         u16 firstCode;
         u16 entryCount;
@@ -155,6 +162,11 @@ struct Subtable<2> : BaseSubtable {
     std::vector<Subheader> subHeaders;
     std::vector<u16> glyphIdArray;
 
+    [[nodiscard]] virtual auto type() const noexcept -> size_t override
+    {
+        return 2;
+    }
+
     [[nodiscard]] virtual auto map(u16) const -> std::optional<u32> override
     {
         // Unsupported "This format is not commonly used today."
@@ -168,7 +180,7 @@ struct Subtable<2> : BaseSubtable {
 };
 
 template <>
-struct Subtable<4> : BaseSubtable {
+struct Subtable<4> : public BaseSubtable {
     // Segment mapping to delta values
     u16 format = 2;
     u16 length;
@@ -183,6 +195,11 @@ struct Subtable<4> : BaseSubtable {
     std::vector<i16> idDelta;
     std::vector<u16> idRangeOffset;
     std::vector<u16> glyphIdArray;
+
+    [[nodiscard]] virtual auto type() const noexcept -> size_t override
+    {
+        return 4;
+    }
 
     [[nodiscard]] virtual auto map(u16 chr) const -> std::optional<u32> override
     {
@@ -321,7 +338,7 @@ struct Subtable<4> : BaseSubtable {
 };
 
 template <>
-struct Subtable<6> : BaseSubtable {
+struct Subtable<6> : public BaseSubtable {
     // Trimmed table mapping
     u16 format = 6;
     u16 length;
@@ -329,6 +346,11 @@ struct Subtable<6> : BaseSubtable {
     u16 firstCode;
     u16 entryCount;
     std::vector<u16> glyphIdArray;
+
+    [[nodiscard]] virtual auto type() const noexcept -> size_t override
+    {
+        return 6;
+    }
 
     [[nodiscard]] virtual auto map(u16) const -> std::optional<u32> override
     {
@@ -342,7 +364,7 @@ struct Subtable<6> : BaseSubtable {
 };
 
 template <>
-struct Subtable<8> : BaseSubtable {
+struct Subtable<8> : public BaseSubtable {
     // Mixed 16-bit and 32-bit coverage
 
     struct SequentialMapGroup {
@@ -359,6 +381,11 @@ struct Subtable<8> : BaseSubtable {
     u32 numGroups;
     std::vector<SequentialMapGroup> groups;
 
+    [[nodiscard]] virtual auto type() const noexcept -> size_t override
+    {
+        return 8;
+    }
+
     [[nodiscard]] virtual auto map(u16) const -> std::optional<u32> override
     {
         ASSERT_NOT_REACHED;
@@ -371,7 +398,7 @@ struct Subtable<8> : BaseSubtable {
 };
 
 template <>
-struct Subtable<10> : BaseSubtable {
+struct Subtable<10> : public BaseSubtable {
     // Trimmed array
     u16 format;
     u16 reserved;
@@ -381,6 +408,11 @@ struct Subtable<10> : BaseSubtable {
     u32 numChars;
     std::vector<u16> glyphIdArray;
 
+    [[nodiscard]] virtual auto type() const noexcept -> size_t override
+    {
+        return 10;
+    }
+
     [[nodiscard]] virtual auto map(u16) const -> std::optional<u32> override
     {
         ASSERT_NOT_REACHED;
@@ -393,21 +425,35 @@ struct Subtable<10> : BaseSubtable {
 };
 
 template <>
-struct Subtable<12> : BaseSubtable {
+struct Subtable<12> : public BaseSubtable {
     // Segmented coverage
 
     struct SequentialMapGroup {
         u32 startCharCode;
         u32 endCharCode;
         u32 startGlyphID;
+
+        auto read(std::ifstream& file) -> bool
+        {
+            for (auto&& member : { &startCharCode, &endCharCode, &startGlyphID }) {
+                file.read(reinterpret_cast<char*>(member), sizeof(u32));
+                *member = ntohl(*member);
+            }
+            return true;
+        }
     };
 
-    u16 format;
+    u16 format = 12;
     u16 reserved;
     u32 length;
     u32 language;
     u32 numGroups;
     std::vector<SequentialMapGroup> groups;
+
+    [[nodiscard]] virtual auto type() const noexcept -> size_t override
+    {
+        return 12;
+    }
 
     [[nodiscard]] virtual auto map(u16 chr) const -> std::optional<u32> override
     {
@@ -449,7 +495,7 @@ struct Subtable<12> : BaseSubtable {
                 } else if constexpr (sizeof(MemberType) == 4) {
                     this->*member = ntohl(this->*member);
                 } else {
-        ASSERT_NOT_REACHED;
+                    ASSERT_NOT_REACHED;
                 }
             }(members),
              ...);
@@ -471,7 +517,7 @@ struct Subtable<12> : BaseSubtable {
 };
 
 template <>
-struct Subtable<13> : BaseSubtable {
+struct Subtable<13> : public BaseSubtable {
     // Many-to-one range mappings
 
     struct ConstantMapGroup {
@@ -487,6 +533,11 @@ struct Subtable<13> : BaseSubtable {
     u32 numGroups;
     ConstantMapGroup groups;
 
+    [[nodiscard]] virtual auto type() const noexcept -> size_t override
+    {
+        return 13;
+    }
+
     [[nodiscard]] virtual auto map(u16) const -> std::optional<u32> override
     {
         ASSERT_NOT_REACHED;
@@ -499,7 +550,7 @@ struct Subtable<13> : BaseSubtable {
 };
 
 template <>
-struct Subtable<14> : BaseSubtable {
+struct Subtable<14> : public BaseSubtable {
     // Unicode variation sequences
 
     struct VariationSelector {
@@ -530,6 +581,11 @@ struct Subtable<14> : BaseSubtable {
     u32 length;
     u32 numVarSelectorRecords;
     std::vector<VariationSelector> varSelector;
+
+    [[nodiscard]] virtual auto type() const noexcept -> size_t override
+    {
+        return 14;
+    }
 
     [[nodiscard]] virtual auto map(u16) const -> std::optional<u32> override
     {
@@ -574,11 +630,11 @@ enum class WindowsPlatform : u16 {
 
 class CharacterMap : public Table {
     // https://learn.microsoft.com/en-us/typography/opentype/spec/cmap
-    u16 version {};
-    u16 numTables {};
-    std::vector<EncodingRecord> encodingRecords {};
+    u16 m_version {};
+    u16 m_num_tables {};
+    std::vector<EncodingRecord> m_encoding_records {};
 
-    std::vector<std::shared_ptr<BaseSubtable>> subtables {};
+    std::unordered_map<u32, std::shared_ptr<BaseSubtable>> m_subtables {};
 
 public:
     static constexpr TableTag g_identifier { 'c', 'm', 'a', 'p' };
@@ -587,20 +643,20 @@ public:
 
     [[nodiscard]] auto records() const -> std::vector<EncodingRecord> const&
     {
-        return encodingRecords;
+        return m_encoding_records;
     }
 
     virtual auto read(std::ifstream& file) -> bool override
     {
         size_t base = file.tellg();
-        file.read(reinterpret_cast<char*>(&version), sizeof(u16));
-        version = ntohs(version);
+        file.read(reinterpret_cast<char*>(&m_version), sizeof(u16));
+        m_version = ntohs(m_version);
 
-        file.read(reinterpret_cast<char*>(&numTables), sizeof(u16));
-        numTables = ntohs(numTables);
+        file.read(reinterpret_cast<char*>(&m_num_tables), sizeof(u16));
+        m_num_tables = ntohs(m_num_tables);
 
-        encodingRecords.resize(numTables);
-        for (auto& record : encodingRecords) {
+        m_encoding_records.resize(m_num_tables);
+        for (auto& record : m_encoding_records) {
             record.read(file);
 
             size_t cursor = file.tellg();
@@ -610,11 +666,6 @@ public:
             format = ntohs(format);
             file.seekg(base + record.subtableOffset);
 
-            /**
-             * FIXME: Different encodingRecords can map to the same subtable.
-             *        We're making a new subtable for each record, even if
-             *        they're duplicates.
-             */
             auto subtable = std::shared_ptr<BaseSubtable>(nullptr);
             switch (format) {
             case 0:
@@ -637,7 +688,6 @@ public:
                     std::cerr,
                     "CharacterMap encounted unsupported Subtable format {}.",
                     format);
-
 #endif
                 return false;
 
@@ -647,7 +697,7 @@ public:
 
             subtable->read(file);
 
-            subtables.push_back(subtable);
+            m_subtables[record.subtableOffset] = subtable;
 
             file.seekg(cursor);
         }
@@ -658,13 +708,19 @@ public:
     [[nodiscard]] auto map(u16 chr) const noexcept -> u16
     {
         // FIXME: Use platform/encoding to choose proper subtable
-        return subtables[0]->map(chr).value_or(0);
+        // FIXME: map should accept u32 instead of u16
+        for (auto&& [_, subtable] : m_subtables) {
+            if (auto glyph_id = subtable->map(chr))
+                return *glyph_id;
+        }
+
+        return 0;
     }
 
     [[nodiscard]] auto to_string() const noexcept -> std::string
     {
         return std::format("CharacterMap(version: {}, numTables: {})",
-                           version,
-                           numTables);
+                           m_version,
+                           m_num_tables);
     }
 };
