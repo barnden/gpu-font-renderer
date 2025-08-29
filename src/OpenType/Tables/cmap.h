@@ -554,25 +554,45 @@ struct Subtable<14> : public BaseSubtable {
     // Unicode variation sequences
 
     struct VariationSelector {
-        u32 varSelector : 24; // 24-bit
+        u32 varSelector; // 24-bit
         u32 defaultUVSOffset;
         u32 nonDefaultUVSOffset;
+
+        union {
+
+        } 
+
+        auto read(std::ifstream& file) -> bool
+        {
+            file.read(reinterpret_cast<char*>(&varSelector), 3);
+            varSelector = be24toh(varSelector);
+
+            file.read(reinterpret_cast<char*>(&defaultUVSOffset), sizeof(u32));
+            defaultUVSOffset = ntohl(defaultUVSOffset);
+
+            file.read(reinterpret_cast<char*>(&nonDefaultUVSOffset), sizeof(u32));
+            nonDefaultUVSOffset = ntohl(nonDefaultUVSOffset);
+
+            return true;
+        }
     };
 
-    struct UnicodeRange {
-        u32 varSelector : 24; // 24-bit
-        u8 additionalCount;
-    };
     struct DefaultUVSTable {
+        struct UnicodeRange {
+            u32 varSelector; // 24-bit
+            u8 additionalCount;
+        };
+
         u32 numUnicodeValueRanges;
         std::vector<UnicodeRange> ranges;
     };
 
-    struct UVSMapping {
-        u32 unicodeValue : 24;
-        u16 glyphID;
-    };
     struct UVSMapTable {
+        struct UVSMapping {
+            u32 unicodeValue; // 24-bit
+            u16 glyphID;
+        };
+
         u32 numUVSMappings;
         std::vector<UVSMapping> uvsMappings;
     };
@@ -592,9 +612,40 @@ struct Subtable<14> : public BaseSubtable {
         ASSERT_NOT_REACHED;
     }
 
-    virtual auto read(std::ifstream&) -> bool override
+    virtual auto read(std::ifstream& file) -> bool override
     {
+        static constexpr auto fields = std::make_tuple(
+            &Subtable<14>::format,
+            &Subtable<14>::length,
+            &Subtable<14>::numVarSelectorRecords);
+
+        std::apply([&](auto&&... members) {
+            ([&](auto member) {
+                using MemberType = decltype(this->*member);
+                file.read(reinterpret_cast<char*>(&(this->*member)), sizeof(this->*member));
+
+                if constexpr (sizeof(MemberType) == 2) {
+                    this->*member = ntohs(this->*member);
+                } else if constexpr (sizeof(MemberType) == 4) {
+                    this->*member = ntohl(this->*member);
+                } else {
+                    ASSERT_NOT_REACHED;
+                }
+            }(members),
+             ...);
+        },
+                   fields);
+
+        varSelector.resize(numVarSelectorRecords);
+
+        for (auto&& selector : varSelector) {
+            if (!selector.read(file))
+                return false;
+        }
+
         ASSERT_NOT_REACHED;
+
+        return true;
     }
 };
 
@@ -677,12 +728,14 @@ public:
             case 12:
                 subtable = std::make_shared<Subtable<12>>();
                 break;
+            case 14:
+                subtable = std::make_shared<Subtable<14>>();
+                break;
             case 2:
             case 6:
             case 8:
             case 10:
             case 13:
-            case 14:
 #ifndef NDEBUG
                 std::println(
                     std::cerr,

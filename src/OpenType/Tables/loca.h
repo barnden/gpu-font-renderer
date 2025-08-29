@@ -27,31 +27,35 @@ public:
     virtual auto read(std::ifstream& file) -> bool override
     {
         u32 last = 0;
-        for (auto i = 0uz; i < m_size; i++) {
-            // FIXME: DRY and don't do this comparison every iteration
-            if (m_stride == 16) {
-                u16* data = &reinterpret_cast<u16*>(m_data.get())[i];
-                file.read(reinterpret_cast<char*>(data), sizeof(u16));
-                *data = ntohs(*data);
+        bool error = false;
+
+        [&]<size_t... I>(std::integer_sequence<size_t, I...>) {
+            ([&]<size_t i>() {
+                if (m_stride != i)
+                    return;
+
+                using DataType = std::conditional<i == 16, u16, u32>::type;
+                DataType* data = &reinterpret_cast<DataType*>(m_data.get())[i];
+                file.read(reinterpret_cast<char*>(data), sizeof(DataType));
+
+                if constexpr (i == 16) {
+                    *data = ntohs(*data);
+                } else {
+                    *data = ntohl(*data);
+                }
 
                 // The offsets are monotonically increasing
-                if (last > *data)
-                    return false;
+                if (last > *data) {
+                    error = true;
+                    return;
+                }
 
                 last = *data;
-            } else {
-                u32* data = &reinterpret_cast<u32*>(m_data.get())[i];
-                file.read(reinterpret_cast<char*>(data), sizeof(u32));
-                *data = ntohs(*data);
+            }.template operator()<I>(),
+             ...);
+        }(std::integer_sequence<size_t, 16, 32> {});
 
-                if (last > *data)
-                    return false;
-
-                last = *data;
-            }
-        }
-
-        return true;
+        return !error;
     }
 
     [[nodiscard]] auto operator[](size_t idx) const -> u32

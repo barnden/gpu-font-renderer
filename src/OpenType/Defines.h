@@ -17,9 +17,9 @@ using u64 = uint64_t;
 using TableTag = std::array<char, 4>;
 
 #if __cpp_lib_ranges_enumerate == 202302L
-#define enumerate(v) std::views::enumerate(v)
+#    define enumerate(v) std::views::enumerate(v)
 #else
-#define enumerate(v) std::views::zip(std::views::iota(0), v)
+#    define enumerate(v) std::views::zip(std::views::iota(0), v)
 #endif
 
 // Based off of https://stackoverflow.com/a/4410728
@@ -33,9 +33,13 @@ using TableTag = std::array<char, 4>;
 #    define be32toh(x) betoh32(x)
 #    define be64toh(x) betoh64(x)
 #elif defined(__APPLE__)
-#include <libkern/_OSByteOrder.h>
-#define be64toh(x) __DARWIN_OSSwapInt64(x)
+#    include <libkern/_OSByteOrder.h>
+#    define be64toh(x) __DARWIN_OSSwapInt64(x)
 #endif
+
+constexpr u32 be24toh(u32 x) {
+    return (x & 0xFF) << 16 | (x & 0x00FF00) | ((x >> 16) & 0xFF);
+}
 
 #if _MSC_VER && !__INTEL_COMPILER
 #    define ASSERT_NOT_REACHED __assume(false);

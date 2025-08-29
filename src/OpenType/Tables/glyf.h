@@ -8,7 +8,10 @@
 #include <iostream>
 #include <memory>
 #include <ranges>
+#include <stdexcept>
 #include <vector>
+
+#include <print>
 
 #include "OpenType/Tables/loca.h"
 
@@ -54,12 +57,12 @@ public:
 
     [[nodiscard]] auto min() const -> std::pair<i16, i16>
     {
-        return std::make_tuple(xMin, yMin);
+        return std::make_pair(xMin, yMin);
     }
 
     [[nodiscard]] auto max() const -> std::pair<i16, i16>
     {
-        return std::make_tuple(xMax, yMax);
+        return std::make_pair(xMax, yMax);
     }
 };
 
@@ -100,7 +103,7 @@ class SimpleGlyphDescription : public BaseGlyphDescription {
     };
     using flag_t = std::bitset<Flags::Num_FLAGS>;
 
-    std::vector<u16> m_contour_ends;
+    std::vector<u16> m_contour_ends; // endPtsOfContours
     std::vector<u8> m_instructions;
     std::vector<flag_t> m_flags;
     std::vector<std::vector<std::pair<i16, i16>>> m_contours;
@@ -115,12 +118,13 @@ class SimpleGlyphDescription : public BaseGlyphDescription {
 
     void process_points(std::vector<std::pair<i16, i16>>&& points)
     {
+        using std::views::zip, std::views::iota;
         // A file-size optimization is done with the points array:
         // Points with repeated on- or off-curve characteristics imply
         // a control point with opposite characteristic at the midpoint.
         m_contours.resize(m_contour_ends.size());
 
-        for (auto&& [idx, contour, end] : std::views::zip(std::views::iota(0), m_contours, m_contour_ends)) {
+        for (auto&& [idx, contour, end] : zip(iota(0), m_contours, m_contour_ends)) {
             auto const start = (idx == 0) ? 0 : (m_contour_ends[idx - 1] + 1);
             bool should_shift = false;
 
@@ -130,22 +134,28 @@ class SimpleGlyphDescription : public BaseGlyphDescription {
                 auto&& [x, y] = points[i];
                 auto touching = m_flags[i][Flags::ON_CURVE_POINT];
 
-                auto&& [x_prev, y_prev] = points[prev];
-                auto touching_prev = m_flags[prev][Flags::ON_CURVE_POINT];
+                try {
+                    auto&& [x_prev, y_prev] = points.at(prev);
+                    auto touching_prev = m_flags[prev][Flags::ON_CURVE_POINT];
 
-                if (touching == touching_prev) {
-                    auto midpoint = std::make_tuple((x + x_prev) / 2, (y + y_prev) / 2);
+                    if (touching == touching_prev) {
+                        auto midpoint = std::make_pair((x + x_prev) / 2, (y + y_prev) / 2);
+
+                        if (contour.empty())
+                            should_shift = touching;
+
+                        contour.push_back(std::move(midpoint));
+                    }
 
                     if (contour.empty())
-                        should_shift = touching;
+                        should_shift = !touching;
 
-                    contour.push_back(std::move(midpoint));
+                    contour.push_back(points[i]);
+                } catch (std::out_of_range& error) {
+                    std::println("points.at({}); (size: {}, start: {}, end: {}, epts: {})", prev, points.size(), start, end, m_contour_ends);
+                    std::println("{}:{}", __FILE__, __LINE__);
+                    exit(EXIT_FAILURE);
                 }
-
-                if (contour.empty())
-                    should_shift = !touching;
-
-                contour.push_back(points[i]);
             }
 
             // For my purposes, I prefer the first point of the contour to be on-surface
@@ -217,7 +227,6 @@ public:
         }
 
         auto read_coordinates = [&]<size_t I>(Flags short_vector, Flags same_or_positive) {
-
             for (auto&& [i, flag] : enumerate(m_flags)) {
                 i16 last = (i == 0) ? 0 : std::get<I>(points[i - 1]);
                 bool is_byte = flag[short_vector];
@@ -514,7 +523,16 @@ public:
             }
 
             m_glyphs[i]->m_header = std::move(header);
-            m_glyphs[i]->read(file);
+
+            if (!m_glyphs[i]->read(file))
+                return false;
+
+            size_t cursor = file.tellg();
+
+            if (cursor - base - loca[i] > size) {
+                std::println("{} {} {}", base + loca[i], base + loca[i + 1], cursor);
+                return false;
+            }
         }
 
         return true;
