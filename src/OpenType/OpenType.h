@@ -8,10 +8,10 @@
 #include <print>
 #include <string>
 
-#include "Defines.h"
+#include "OpenType/Defines.h"
 
-#include "TableDirectory.h"
-#include "Tables.h"
+#include "OpenType/TableDirectory.h"
+#include "OpenType/Tables.h"
 
 class OpenType {
     TableDirectory m_directory;

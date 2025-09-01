@@ -1,20 +1,23 @@
-#include "OpenType/Defines.h"
-#include "OpenType/OpenType.h"
-#include "Renderer/Buffer.h"
-#include "Renderer/Camera.h"
-#include "Renderer/MatrixStack.h"
-#include "Renderer/Program.h"
-#include "Renderer/Window.h"
+#ifdef USE_OPENGL
+#    include "OpenType/Defines.h"
+#    include "OpenType/OpenType.h"
 
-#include <GL/glew.h>
-#include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/type_ptr.hpp>
+#    include "Renderer/Camera.h"
+#    include "Renderer/MatrixStack.h"
 
-#include <cstdlib>
-#include <numeric>
-#include <print>
-#include <vector>
+#    include "Renderer/OpenGL/Buffer.h"
+#    include "Renderer/OpenGL/Program.h"
+#    include "Renderer/OpenGL/Window.h"
+
+#    include <GL/glew.h>
+#    include <GLFW/glfw3.h>
+#    include <glm/glm.hpp>
+#    include <glm/gtc/type_ptr.hpp>
+
+#    include <cstdlib>
+#    include <numeric>
+#    include <print>
+#    include <vector>
 
 using namespace renderer;
 
@@ -236,14 +239,14 @@ auto main(int argc, char** argv) -> int
         return true;
     };
 
-    auto program = Program("../resources/Glyph.vertex.glsl", "../resources/Glyph.fragment.glsl");
+    auto program = Program("../resources/Glyph.vert", "../resources/Glyph.frag");
     program.add_uniform({ "u_Projection",
                           "u_ModelView" });
     program.add_attribute({ "i_Position",
                             "i_TexCoord",
                             "i_Glyph" });
 
-    auto debug = Program("../resources/Debug.vertex.glsl", "../resources/Debug.fragment.glsl");
+    auto debug = Program("../resources/Debug.vert", "../resources/Debug.frag");
     debug.add_uniform({ "u_Projection",
                         "u_ModelView" });
     debug.add_attribute({ "i_Position",
@@ -354,3 +357,4 @@ auto main(int argc, char** argv) -> int
             window.data().update = false;
         });
 }
+#endif

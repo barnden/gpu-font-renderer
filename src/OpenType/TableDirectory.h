@@ -6,7 +6,7 @@
 #include <string>
 
 #include "Defines.h"
-#include "TableRecord.h"
+#include "OpenType/TableRecord.h"
 
 struct TableDirectory {
     u32 sfntVersion;

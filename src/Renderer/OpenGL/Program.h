@@ -4,7 +4,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "Renderer/Utils.h"
+#include "Renderer/OpenGL/Utils.h"
 
 namespace renderer {
 class Program {

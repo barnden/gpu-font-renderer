@@ -2,8 +2,8 @@
 
 #include <GL/glew.h>
 
-#include "Renderer/Texture.h"
-#include "Renderer/Utils.h"
+#include "Renderer/OpenGL/Texture.h"
+#include "Renderer/OpenGL/Utils.h"
 
 namespace renderer {
 class Framebuffer {

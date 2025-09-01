@@ -3,7 +3,7 @@
 #include "OpenType/Defines.h"
 #include <GL/glew.h>
 
-#include "Renderer/Utils.h"
+#include "Renderer/OpenGL/Utils.h"
 
 namespace renderer {
 class Texture {
